@@ -1,0 +1,27 @@
+(lang dune 3.20)
+
+(name markwutka_ocaml)
+
+(generate_opam_files true)
+
+(source
+ (github username/reponame))
+
+(authors "Mark Wutka <mark@wutka>")
+
+(maintainers "Mark Wutka <mark@wutka.com>")
+
+(license LICENSE)
+
+(documentation https://url/to/documentation)
+
+(using menhir 3.0)
+
+(package
+ (name markwutka_ocaml)
+ (synopsis "A C Compiler")
+ (description "OCaml implementation of the C compiler described in 'Writing a C Compiler'")
+ (depends ocaml dune menhir)
+ )
+
+; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

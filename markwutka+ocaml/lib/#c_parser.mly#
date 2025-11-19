@@ -1,0 +1,3 @@
+%token <int> INT
+%token
+k

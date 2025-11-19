@@ -1,0 +1,4 @@
+(executable
+ (public_name markwutka_ocaml)
+ (name main)
+ (libraries c_compiler))
