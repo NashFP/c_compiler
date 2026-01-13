@@ -1,4 +1,4 @@
-(menhir
+(menhir 
   (modules c_parser))
 
 (ocamllex c_lexer)

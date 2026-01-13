@@ -1,6 +1,6 @@
 #!/bin/sh
 set -x
-MODE=""
+MODE="--codegen"
 if [ "$1" = "--lex" ]; then
   MODE="--lex"
   shift
@@ -29,10 +29,10 @@ rm $PREPROCESSED
 if [ $ERR -ne 0 ]; then
   exit $ERR
 fi
-if [ "$MODE" = "" ]; then
+if [ "$MODE" = "--codegen" ]; then
   gcc $ASSEMBLED -o $BASE
   ERR=$?
-  rm $ASSEMBLED
+#  rm $ASSEMBLED
   exit $ERR
 fi
 
