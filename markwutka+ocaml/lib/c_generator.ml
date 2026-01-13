@@ -25,18 +25,20 @@ let op_str operand =
   | Op_Immediate i -> Printf.sprintf "$%Ld" i
   | Op_Register -> "%eax"
 
-let generate_asm_instr out_file instr =
+let generate_asm_instr instr =
   match instr with
-  | Inst_Mov (src, dst) -> Printf.fprintf out_file "    movl %s,%s\n"
+  | Inst_Mov (src, dst) -> Printf.sprintf "    movl %s,%s\n"
       (op_str src) (op_str dst)
-  | Inst_Ret -> Printf.fprintf out_file "    ret\n"
+  | Inst_Ret -> Printf.sprintf "    ret\n"
 
-let generate_asm_func out_file (Func_Def (name, instrs)) =
-  Printf.fprintf out_file "    .globl %s\n" name;
-  Printf.fprintf out_file "%s:\n" name;
-  List.iter (generate_asm_instr out_file) instrs
+let generate_asm_func (Func_Def (name, instrs)) =
+  [ Printf.sprintf "    .globl %s\n" name;
+    Printf.sprintf "%s:\n" name ] @
+    List.map generate_asm_instr instrs
 
 let generate_asm asm_filename (ASDL_Program func_def) = 
-  let out_file = open_out asm_filename in
-  (generate_asm_func out_file func_def ;
-    Printf.fprintf out_file "    .section .note.GNU-stack,\"\",@progbits\n")
+  let trailer = [Printf.sprintf
+                   "    .section .note.GNU-stack,\"\",@progbits\n"] in
+  let asm_lines = generate_asm_func func_def @ trailer in
+  Out_channel.with_open_text asm_filename
+    (fun f -> List.iter (fun l -> output_string f l) asm_lines)
