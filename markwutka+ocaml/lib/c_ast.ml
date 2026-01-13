@@ -1,3 +1,6 @@
+(* Although the Writing a C Compiler doesn't mention this in the
+   early chapters, I am keeping track of the original source file,
+   line number, and column in order to report errors. *)
 
 type loc_type = Location of string * int * int
   and exp_type = ConstantInt of loc_type * int64

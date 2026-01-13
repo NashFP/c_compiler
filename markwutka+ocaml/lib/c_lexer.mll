@@ -2,13 +2,18 @@
   open C_parser
 
   module StringMap = Map.Make(String)
-  
+
+(* I would like to make a map of keywords to token instances, but
+   unlike Haskell, Ocaml's type constructors aren't functions. There
+   is a library called Variantslib that can create these functions
+   automatically, but I just do it manually here. *)
   let make_int loc = INT (loc)
   let make_void loc = VOID (loc)
   let make_return loc = RETURN (loc)
   let keyword_map = StringMap.of_list [
   ("int", make_int); ("void", make_void); ("return", make_return);
   ]
+
   let identifier_or_keyword str filename line col =
     match StringMap.find_opt str keyword_map with
     | Some create_func -> create_func (Location (filename, line, col))
@@ -25,7 +30,11 @@
 }
 
 rule token = parse
-  | ['\n'] { Lexing.new_line lexbuf; token lexbuf }
+| ['\n'] { Lexing.new_line lexbuf; token lexbuf }
+(* The following expression matches output from the C preprocessor that
+   specifies the line number and filename that the following lines come
+   from. This will allow the compiler to report errors from included
+   files easily. *)
   | "# " (['0'-'9']+ as lxnum) " " ['"']([^'"']* as fname) ['"'] [^'\n']*  ['\n']
   { Lexing.set_position lexbuf { pos_fname=fname; pos_lnum=int_of_string lxnum; pos_bol=0; pos_cnum=0}; token lexbuf}
   | [' ' '\t'] { token lexbuf }
