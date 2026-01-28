@@ -13,8 +13,14 @@ elif [ "$1" = "--parse" ]; then
 elif [ "$1" = "--codegen" ]; then
   MODE="--codegen"
   shift
+elif [ "$1" = "--tacky" ]; then
+  MODE="--tacky"
+  shift
 elif [ "$1" = "-S" ]; then
   MODE="-S"
+  shift
+elif [ "$1" = "--compile" ]; then
+  MODE="--compile"
   shift
 fi
 SOURCE_FILE=$1
@@ -34,7 +40,9 @@ ASSEMBLED=$BASE".s"
 ROOT_DIR=`dirname "$0"`
 
 # Run the C preprocessor on the file
-gcc -E $SOURCE_FILE -o $PREPROCESSED
+# If you want CPP to include file/line markers so you can track
+# the original source file and line, remove the -P option
+gcc -P -E $SOURCE_FILE -o $PREPROCESSED
 
 # Exit if there is an error
 ERR=$?
