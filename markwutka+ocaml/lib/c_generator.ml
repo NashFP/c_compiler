@@ -8,8 +8,10 @@ type asdl_function_type =
 
 type asdl_program_type = ASDL_Program of asdl_function_type
 
-let generate_asdl_expr (C_ast.ConstantInt (_, i)) =
-  Inst_Mov (Op_Immediate i, Op_Register)
+let generate_asdl_expr expr =
+  match expr with
+  | C_ast.ConstantInt (_, i) -> Inst_Mov (Op_Immediate i, Op_Register)
+  | C_ast.Unary (_, _, _) -> Inst_Ret
 
 let generate_asdl_stmt (C_ast.StmtReturn (_, expr)) =
   [generate_asdl_expr expr; Inst_Ret]

@@ -41,6 +41,9 @@ rule token = parse
   | ['A'-'Z' 'a'-'z' '_']['A'-'Z' 'a'-'z' '0'-'9' '_']* as lxm { identifier_or_keyword lxm (fname lexbuf) (linenum lexbuf) (colnum lexbuf) }
   | ['0'-'9']+ as lxm { CONSTANT_INT (Location (fname lexbuf, linenum lexbuf, colnum lexbuf), string_to_int lxm)  }
   | (['0'-'9']+ ['A'-'Z' 'a'-'z' '_']) as ident { Printf.eprintf "Invalid identifier %s - may not start with digits in %s at %d:%d\n" ident (fname lexbuf) (linenum lexbuf) (colnum lexbuf); exit 2 }
+  | "--" { MINUSMINUS (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }
+  | "-" { MINUS (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }
+  | "~" { TILDE (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }
   | "(" { LPAREN (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }
   | ")" { RPAREN (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }
   | "{" { LBRACE (Location (fname lexbuf, linenum lexbuf, colnum lexbuf)) }

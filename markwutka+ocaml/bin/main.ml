@@ -44,13 +44,13 @@ let () =
   else
     let prog = parse_c Sys.argv.(2) in 
     let source_filename = Sys.argv.(2) in
-    let asdl = C_generator.generate_asdl prog in
+    let _asdl = Tacky.generate_tacky_program prog in
     if (String.equal Sys.argv.(1) "--compile") ||
          (String.equal Sys.argv.(1) "-S") then
-      let asm_filename =
+      let _asm_filename =
         (String.sub source_filename 0
            ((String.length source_filename) - 2)) ^ ".s" in
-      C_generator.generate_asm asm_filename asdl
+      ()
     else
       ()
 

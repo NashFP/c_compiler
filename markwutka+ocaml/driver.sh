@@ -13,18 +13,26 @@ elif [ "$1" = "--parse" ]; then
 elif [ "$1" = "--codegen" ]; then
   MODE="--codegen"
   shift
+elif [ "$1" = "--tacky" ]; then
+  MODE="--codegen"
+  shift
 elif [ "$1" = "-S" ]; then
   MODE="-S"
   shift
 fi
+ARCH=`arch`
 SOURCE_FILE=$1
 BASE=${SOURCE_FILE%.*}
 PREPROCESSED=$BASE".i"
 ASSEMBLED=$BASE".s"
 ROOT_DIR=`dirname "$0"`
+GCC=gcc
+if [ "$ARCH" = "arm64" ]; then
+  GCC=x86_64-elf-gcc
+fi
 
 # Run the C preprocessor on the file
-gcc -E $SOURCE_FILE -o $PREPROCESSED
+$GCC -E $SOURCE_FILE -o $PREPROCESSED
 
 # Exit if there is an error
 ERR=$?
@@ -44,7 +52,7 @@ if [ $ERR -ne 0 ]; then
 fi
 
 if [ "$MODE" = "--compile" ]; then
-  gcc $ASSEMBLED -o $BASE
+  $GCC $ASSEMBLED -o $BASE
   ERR=$?
   rm $ASSEMBLED
   exit $ERR

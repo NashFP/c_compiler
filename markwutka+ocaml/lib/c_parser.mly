@@ -9,6 +9,9 @@
 %token<C_ast.loc_type> LBRACE
 %token<C_ast.loc_type> RBRACE
 %token<C_ast.loc_type> SEMI
+%token<C_ast.loc_type> MINUSMINUS
+%token<C_ast.loc_type> MINUS
+%token<C_ast.loc_type> TILDE
 %token EOF
 
 %start<C_ast.program_type> program
@@ -26,4 +29,7 @@ statement: RETURN exp SEMI { C_ast.StmtReturn ($1, $2) }
   ;
 
 exp: CONSTANT_INT { C_ast.ConstantInt (fst $1, snd $1) }
+    | MINUS exp { C_ast.Unary ($1, Negate, $2) }
+    | TILDE exp { C_ast.Unary ($1, Complement, $2) }
+    | LPAREN exp RPAREN { $2 }
   ;
