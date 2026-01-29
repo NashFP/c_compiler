@@ -7,11 +7,10 @@
    unlike Haskell, Ocaml's type constructors aren't functions. There
    is a library called Variantslib that can create these functions
    automatically, but I just do it manually here. *)
-  let make_int loc = INT (loc)
-  let make_void loc = VOID (loc)
-  let make_return loc = RETURN (loc)
   let keyword_map = StringMap.of_list [
-  ("int", make_int); ("void", make_void); ("return", make_return);
+    ("int", fun loc -> INT loc);
+    ("void", fun loc -> VOID loc);
+    ("return", fun loc -> RETURN loc);
   ]
 
   let identifier_or_keyword str filename line col =
