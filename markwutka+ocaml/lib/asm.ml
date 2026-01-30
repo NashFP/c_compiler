@@ -120,4 +120,4 @@ let emit_func (Function (name, instrs)) =
 
 let emit_program (Program func_def) =
   let func_lines = emit_func func_def in
-  func_lines @ ["    .section .note.FNU-stack,\"\",@progbits\n"]
+  func_lines @ ["    .section .note.GNU-stack,\"\",@progbits\n"]
