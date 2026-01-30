@@ -85,3 +85,39 @@ let fixup_func (Function (name, instrs)) stack_size =
 
 let fixup_program (Program func_def) stack_size =
   Program (fixup_func func_def stack_size)
+
+let emit_operand operand =
+  match operand with
+  | Reg AX -> "%eax"
+  | Reg R10 -> "%r10d"
+  | Stack v -> Printf.sprintf "%d(%%rbp)" v
+  | Imm v -> Printf.sprintf "$%Ld" v
+  | Pseudo _ -> failwith "Pseudo register not removed"
+
+let emit_unop unop =
+  match unop with
+  | Neg -> "negl"
+  | Not -> "notl"
+
+let emit_instr instrs instr =
+  match instr with
+  | Mov(src, dst) -> (Printf.sprintf "    movl   %s, %s\n"
+    (emit_operand src) (emit_operand dst)) :: instrs
+  | Unary (op, operand) ->
+    (Printf.sprintf "    %s    %s\n"
+      (emit_unop op) (emit_operand operand)) :: instrs
+  | Ret -> "    ret\n" :: "    popq    %rbp\n" ::
+    "    movq    %rbp, %rsp\n" :: instrs
+  | AllocateStack v ->
+    (Printf.sprintf "    subq    $%d, %%rsp\n" v) :: instrs
+    
+let emit_func (Function (name, instrs)) =
+  (Printf.sprintf "    .globl %s\n" name)::
+  (Printf.sprintf "%s:\n" name)::
+   "    pushq    %rbp\n"::
+   "    movq     %rsp, %rbp\n"::
+  (List.rev (List.fold_left emit_instr [] instrs))
+
+let emit_program (Program func_def) =
+  let func_lines = emit_func func_def in
+  func_lines @ ["    .section .note.FNU-stack,\"\",@progbits\n"]

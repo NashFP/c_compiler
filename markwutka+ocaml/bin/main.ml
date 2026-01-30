@@ -14,13 +14,15 @@ let () =
     let tacky_prog = Tacky.generate_tacky_program prog in
     if (String.equal Sys.argv.(1) "--compile") ||
          (String.equal Sys.argv.(1) "-S") then
-      let _asm_filename =
+      let asm_filename =
         (String.sub source_filename 0
            ((String.length source_filename) - 2)) ^ ".s" in
         let asm_pass1 = Asm.generate_asm_program tacky_prog in
         let (stack_size, asm_pass2) = Asm.replace_pseudo_program asm_pass1 in
-        let _asm_pass3 = Asm.fixup_program asm_pass2 stack_size in
-      ()
+        let asm_pass3 = Asm.fixup_program asm_pass2 stack_size in
+        let lines = Asm.emit_program asm_pass3 in
+          (Out_channel.with_open_text asm_filename (fun out_file ->
+            List.iter (output_string out_file) lines); ())
     else
       ()
 
