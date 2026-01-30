@@ -1,3 +1,5 @@
+module StringMap = Map.Make(String)
+
 type reg_type = AX | R10
 type operand_type = Imm of int64 | Reg of reg_type | Pseudo of string |
     Stack of int
@@ -32,3 +34,54 @@ let generate_asm_func (Tacky.Function (name, instrs)) =
 
 let generate_asm_program (Tacky.Program func_def) =
   Program (generate_asm_func func_def)
+
+let pseudo_to_stack var_map stack_size s =
+  match StringMap.find_opt s var_map with
+  | Some v -> (var_map, stack_size, Stack v)
+  | None -> (StringMap.add s (stack_size-4) var_map, stack_size - 4,
+    Stack (stack_size - 4))
+
+let replace_op_pseudo var_map stack_size op =
+  match op with
+  | Pseudo s ->
+    let (var_map, stack_size, new_op) =
+      pseudo_to_stack var_map stack_size s in
+      (var_map, stack_size, new_op)
+  | rest -> (var_map, stack_size, rest)
+
+let replace_pseudo (var_map, stack_size, instrs) instr =
+  match instr with
+  | Mov (src, dst) ->
+    let (var_map, stack_size, new_src) =
+      replace_op_pseudo var_map stack_size src in
+    let (var_map, stack_size, new_dst) =
+      replace_op_pseudo var_map stack_size dst in
+    (var_map, stack_size, (Mov (new_src, new_dst)) :: instrs)
+  | Unary (op, operand) ->
+    let (var_map, stack_size, new_operand) =
+      replace_op_pseudo var_map stack_size operand in
+      (var_map, stack_size, (Unary (op, new_operand)) :: instrs)
+  | rest -> (var_map, stack_size, rest :: instrs)
+
+let replace_pseudo_func (Function (name, instrs)) =
+  let (_, stack_size, new_instrs) =
+    List.fold_left replace_pseudo (StringMap.empty, 0, []) instrs in
+  (stack_size, Function (name, List.rev new_instrs))
+
+let replace_pseudo_program (Program func_def) =
+  let (stack_size, new_func) = replace_pseudo_func func_def in
+  (stack_size, Program new_func)
+
+let fixup_instr instrs instr =
+  match instr with
+  | Mov (Stack src, Stack dst) ->
+    (Mov (Reg R10, Stack dst)) ::
+    (Mov (Stack src, Reg R10)) :: instrs
+  | rest -> rest :: instrs
+
+let fixup_func (Function (name, instrs)) stack_size =
+  let new_instrs = List.fold_left fixup_instr [] instrs in
+  Function (name, (AllocateStack (-stack_size) :: List.rev new_instrs))
+
+let fixup_program (Program func_def) stack_size =
+  Program (fixup_func func_def stack_size)

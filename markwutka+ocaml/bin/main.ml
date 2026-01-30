@@ -17,7 +17,9 @@ let () =
       let _asm_filename =
         (String.sub source_filename 0
            ((String.length source_filename) - 2)) ^ ".s" in
-        let _asm_pass1 = Asm.generate_asm_program tacky_prog in
+        let asm_pass1 = Asm.generate_asm_program tacky_prog in
+        let (stack_size, asm_pass2) = Asm.replace_pseudo_program asm_pass1 in
+        let _asm_pass3 = Asm.fixup_program asm_pass2 stack_size in
       ()
     else
       ()
