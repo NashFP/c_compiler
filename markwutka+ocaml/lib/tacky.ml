@@ -48,7 +48,7 @@ let generate_tacky_stmt func_ctx (C_ast.StmtReturn (_, expr)) =
 let (func_ctx, instrs, dst) = generate_tacky_expr func_ctx [] expr in
   (func_ctx, instrs @ [Return dst])
 
-let generate_tacky_function (C_ast.FunctionDef (_, (name, stmt))) =
+let generate_tacky_function (C_ast.FunctionDef (_, name, stmt)) =
   let func_ctx = { func_name=name; func_next_temp_num=0 } in
   let (_, instrs) = generate_tacky_stmt func_ctx stmt in
   Function (name, instrs)

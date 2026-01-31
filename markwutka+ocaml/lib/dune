@@ -1,8 +1,3 @@
-(menhir 
-  (modules c_parser))
-
-(ocamllex c_lexer)
-
 (library
   (libraries str)
  (name c_compiler))

@@ -173,8 +173,10 @@ let tokenize lexer =
       else if ch == '%' then
         tokenize_1 (skip lexer) ((PERCENT, loc) :: tokens)
       else
-        (Printf.printf "Unexpected token %c at line %d, column %d in %s\n"
-          ch lexer.lexer_file_line (lexer.lexer_pos+1) lexer.lexer_filename;
+        (Printf.printf "%s, line %d, column %d: Unexpected token %c\n"
+           (Filename.basename lexer.lexer_filename)
+           lexer.lexer_file_line (lexer.lexer_pos+1)
+         ch;
          exit 1)
     in
       tokenize_1 lexer []
