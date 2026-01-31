@@ -14,5 +14,17 @@ and linker on your code. There is a stub `driver.sh` in this directory
 that you can modify to execute your compiler. This stub assumes it
 is running on Linux.
 
+The book mentions running on Apple Silicon. It suggests this command:
+```
+arch -x86_64
+```
+
+This mostly works, except that the Mac uses clang instead of gcc, and
+the assembly file requires a few changes. I modified the default
+`driver.sh` to check to see if it is running on a Mac, and if it is,
+it does a very minimal fixup. I don't know if this will work for
+everyone in the long run, but on my Macbook Air, I am able to pass
+all the tests at least through chapter 3 with the minimal changes.
+
 The book has a companion web site here: [https://norasandler.com/book/](https://norasandler.com/book/) and it has links to many useful tools including
 the Intel 64 Software Developer's Manual and Matt Godbolt's [Compiler Explorer](https://godbolt.org/)

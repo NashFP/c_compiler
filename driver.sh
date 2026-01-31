@@ -25,6 +25,9 @@ elif [ "$1" = "--compile" ]; then
 fi
 SOURCE_FILE=$1
 
+# Find out what operating system this is
+UNAME=`uname`
+
 # Extract the filename from the source file path
 BASE=${SOURCE_FILE%.*}
 
@@ -64,6 +67,12 @@ if [ $ERR -ne 0 ]; then
 fi
 
 if [ "$MODE" = "--compile" ]; then
+# If this is running on an Arm Mac, then it is probably using
+# clang, so we need to modify the generated asm a little bit
+  if [ "$UNAME" = "Darwin" ]; then
+    mv $ASSEMBLED "__astemp"
+    sed -e "/@progbits/d" < __astemp | sed -e "s/.globl main/.globl _main/" | sed -e "s/^main:/_main:/" > $ASSEMBLED
+  fi
   gcc $ASSEMBLED -o $BASE
   ERR=$?
   rm $ASSEMBLED
