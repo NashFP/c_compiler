@@ -168,7 +168,7 @@ let tokenize lexer =
       else if ch == '>' then
         let lexer = skip lexer in
         match peek lexer with
-        | Some '>' -> tokenize_1 (skip lexer) ((LESSLESS,loc) :: tokens)
+        | Some '>' -> tokenize_1 (skip lexer) ((GREATERGREATER,loc) :: tokens)
         | _ -> fail_at lexer "Invalid token >"
       else if ch == '&' then
         tokenize_1 (skip lexer) ((AMPERSAND, loc) :: tokens)        
