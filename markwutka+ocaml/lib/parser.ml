@@ -136,6 +136,7 @@ let parse_function tokens =
   let tokens = expect RPAREN tokens in
   let tokens = expect LBRACE tokens in
   let (stmt, tokens) = parse_statement tokens in
+  let tokens = expect RBRACE tokens in
   (FunctionDef (loc, ident_str ident, stmt), tokens)
 
 let parse_program tokens =

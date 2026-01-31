@@ -23,6 +23,10 @@ type lexer_type = { lexer_lines: string list;
 
 let line_command_regex = Str.regexp "^# *\\([0-9]*\\) *\"\\([^\"]*\\)\".*$"
 
+let int_regex = Str.regexp "[0-9]+\\b"
+
+let identifier_regex = Str.regexp "[A-Za-z_][A-Za-z0-9_]*\\b"
+
 let rec parse_line_command lexer =
   if lexer.lexer_lines == [] then
     lexer
@@ -78,6 +82,15 @@ let skip lexer =
   else
     { lexer with lexer_pos = lexer.lexer_pos + 1 }
 
+let match_regex lexer regex =
+  if at_eol lexer then
+    (None, lexer)
+  else if Str.string_match regex (List.hd lexer.lexer_lines) lexer.lexer_pos then
+    (Some (Str.matched_string (List.hd lexer.lexer_lines)),
+     { lexer with lexer_pos = Str.match_end () })
+  else
+    (None, lexer)
+    
 let location lexer =
   C_ast.Location (lexer.lexer_filename, lexer.lexer_file_line,
     lexer.lexer_pos + 1)
@@ -97,30 +110,12 @@ let make_lexer filename =
     lexer
 
 let parse_integer lexer =
-  let rec parse_integer_1 lexer num =
-    match peek lexer with
-    | None -> (num, lexer)
-    | Some ch ->
-      if Char.Ascii.is_digit ch then
-        parse_integer_1 (skip lexer) (Int64.add (Int64.mul num 10L)
-          (Int64.of_int (Char.Ascii.digit_to_int ch)))
-      else
-        (num, lexer)
-  in parse_integer_1 lexer 0L
-
-let parse_identifier lexer =
-  let (ch, lexer) = next lexer in
-  let ch = Option.get ch in
-  let rec parse_identifier_1 lexer ident =
-    match peek lexer with
-    | None -> (String.of_seq (List.to_seq (List.rev ident)), lexer)
-    | Some ch ->
-      if ch == '_' || Char.Ascii.is_alphanum ch then
-        parse_identifier_1 (skip lexer) (ch::ident)
-      else
-        (String.of_seq (List.to_seq (List.rev ident)), lexer)
-  in
-    parse_identifier_1 lexer [ch]
+  match match_regex lexer int_regex with
+  | (None, _) -> (Printf.printf "%s, line %d, column %d: Invalid integer constant\n"
+                    (Filename.basename lexer.lexer_filename)
+                    lexer.lexer_file_line (lexer.lexer_pos+1); exit 1)
+  | (Some str, lexer) ->
+    (CONSTANT_INT (Int64.of_string str), lexer)
 
 let make_identifier_token ident = 
   match ident with
@@ -128,6 +123,13 @@ let make_identifier_token ident =
   | "void" -> VOID
   | "return" -> RETURN
   | _ -> IDENTIFIER ident
+
+let parse_identifier lexer =
+  match match_regex lexer identifier_regex with
+  | (None, _) -> (Printf.printf "%s, line %d, column %d: Invalid identifier\n"
+                    (Filename.basename lexer.lexer_filename)
+                    lexer.lexer_file_line (lexer.lexer_pos+1); exit 1)
+  | (Some str, lexer) -> (str, lexer)
 
 let tokenize lexer =
   let rec tokenize_1 lexer tokens =
@@ -142,8 +144,8 @@ let tokenize lexer =
       if Char.Ascii.is_white ch then
         tokenize_1 (skip lexer) tokens
       else if Char.Ascii.is_digit ch then
-        let (num, lexer) = parse_integer lexer in
-        tokenize_1 lexer ((CONSTANT_INT num, loc) :: tokens)
+        let (token, lexer) = parse_integer lexer in
+        tokenize_1 lexer ((token,loc) :: tokens)
       else if (Char.Ascii.is_letter ch) || ch == '_' then
         let (ident, lexer) = parse_identifier lexer in
         tokenize_1 lexer ((make_identifier_token ident,loc) :: tokens)
