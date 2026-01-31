@@ -4,5 +4,5 @@
 (ocamllex c_lexer)
 
 (library
-  (libraries)
+  (libraries str)
  (name c_compiler))
