@@ -1,21 +1,21 @@
 type token_type =
-    CONSTANT_INT of C_ast.loc_type * int64
-  | IDENTIFIER of C_ast.loc_type * string
-  | INT of C_ast.loc_type
-  | VOID of C_ast.loc_type
-  | RETURN of C_ast.loc_type
-  | LPAREN of C_ast.loc_type
-  | RPAREN of C_ast.loc_type
-  | LBRACE of C_ast.loc_type
-  | RBRACE of C_ast.loc_type
-  | SEMI of C_ast.loc_type
-  | MINUSMINUS of C_ast.loc_type
-  | MINUS of C_ast.loc_type
-  | TILDE of C_ast.loc_type
-  | ASTERISK of C_ast.loc_type
-  | SLASH of C_ast.loc_type
-  | PLUS of C_ast.loc_type
-  | PERCENT of C_ast.loc_type
+    CONSTANT_INT of  int64
+  | IDENTIFIER of string
+  | INT
+  | VOID
+  | RETURN
+  | LPAREN
+  | RPAREN
+  | LBRACE
+  | RBRACE
+  | SEMI
+  | MINUSMINUS
+  | MINUS
+  | TILDE
+  | ASTERISK
+  | SLASH
+  | PLUS
+  | PERCENT
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -122,17 +122,17 @@ let parse_identifier lexer =
   in
     parse_identifier_1 lexer [ch]
 
-let make_identifier_token loc ident = 
+let make_identifier_token ident = 
   match ident with
-  | "int" -> INT loc
-  | "void" -> VOID loc
-  | "return" -> RETURN loc
-  | _ -> IDENTIFIER (loc, ident)
+  | "int" -> INT
+  | "void" -> VOID
+  | "return" -> RETURN
+  | _ -> IDENTIFIER ident
 
 let tokenize lexer =
   let rec tokenize_1 lexer tokens =
     if at_eof lexer then
-      List.rev (EOF :: tokens)
+      List.rev ((EOF,location lexer):: tokens)
     else if at_eol lexer then
       tokenize_1 (advance_line lexer) tokens
     else
@@ -143,35 +143,35 @@ let tokenize lexer =
         tokenize_1 (skip lexer) tokens
       else if Char.Ascii.is_digit ch then
         let (num, lexer) = parse_integer lexer in
-        tokenize_1 lexer (CONSTANT_INT (loc, num) :: tokens)
+        tokenize_1 lexer ((CONSTANT_INT num, loc) :: tokens)
       else if (Char.Ascii.is_letter ch) || ch == '_' then
         let (ident, lexer) = parse_identifier lexer in
-        tokenize_1 lexer ((make_identifier_token loc ident) :: tokens)
+        tokenize_1 lexer ((make_identifier_token ident,loc) :: tokens)
       else if ch == '-' then
         let lexer = skip lexer in
         match peek lexer with
-        | Some '-' -> tokenize_1 (skip lexer) (MINUSMINUS loc :: tokens)
-        | _ -> tokenize_1 lexer (MINUS loc :: tokens)
+        | Some '-' -> tokenize_1 (skip lexer) ((MINUSMINUS,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((MINUS,loc) :: tokens)
       else if ch == '(' then
-        tokenize_1 (skip lexer) (LPAREN loc :: tokens)
+        tokenize_1 (skip lexer) ((LPAREN, loc) :: tokens)
       else if ch == ')' then
-        tokenize_1 (skip lexer) (RPAREN loc :: tokens)
+        tokenize_1 (skip lexer) ((RPAREN, loc) :: tokens)
       else if ch == '{' then
-        tokenize_1 (skip lexer) (LBRACE loc :: tokens)
+        tokenize_1 (skip lexer) ((LBRACE, loc) :: tokens)
       else if ch == '}' then
-        tokenize_1 (skip lexer) (RBRACE loc :: tokens)
+        tokenize_1 (skip lexer) ((RBRACE, loc) :: tokens)
       else if ch == '~' then
-        tokenize_1 (skip lexer) (TILDE loc :: tokens)
+        tokenize_1 (skip lexer) ((TILDE, loc) :: tokens)
       else if ch == ';' then
-        tokenize_1 (skip lexer) (SEMI loc :: tokens)
+        tokenize_1 (skip lexer) ((SEMI, loc) :: tokens)
       else if ch == '*' then
-        tokenize_1 (skip lexer) (ASTERISK loc :: tokens)
+        tokenize_1 (skip lexer) ((ASTERISK, loc) :: tokens)
       else if ch == '/' then
-        tokenize_1 (skip lexer) (SLASH loc :: tokens)
+        tokenize_1 (skip lexer) ((SLASH, loc) :: tokens)
       else if ch == '+' then
-        tokenize_1 (skip lexer) (PLUS loc :: tokens)
+        tokenize_1 (skip lexer) ((PLUS, loc) :: tokens)
       else if ch == '%' then
-        tokenize_1 (skip lexer) (PERCENT loc :: tokens)
+        tokenize_1 (skip lexer) ((PERCENT, loc) :: tokens)
       else
         (Printf.printf "Unexpected token %c at line %d, column %d in %s\n"
           ch lexer.lexer_file_line (lexer.lexer_pos+1) lexer.lexer_filename;
