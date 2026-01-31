@@ -1,6 +1,8 @@
 type unary_operator = Complement | Negate
+type binary_operator = Add | Subtract | Multiply | Divide | Remainder
 type val_type = ConstantInt of int64 | Var of string
-type instruction = Return of val_type | Unary of unary_operator * val_type * val_type
+type instruction = Return of val_type | Unary of unary_operator * val_type * val_type |
+  Binary of binary_operator * val_type * val_type * val_type
 type function_definition = Function of string * instruction list
 type program_type = Program of function_definition
 type function_context = { func_name: string; func_next_temp_num: int }
@@ -14,6 +16,14 @@ let convert_unop unary_op =
   | C_ast.Complement -> Complement
   | C_ast.Negate -> Negate
 
+let convert_binop binary_op =
+  match binary_op with
+  | C_ast.Add -> Add
+  | C_ast.Subtract -> Subtract
+  | C_ast.Multiply -> Multiply
+  | C_ast.Divide -> Divide
+  | C_ast.Remainder -> Remainder
+
 let rec generate_tacky_expr func_ctx instrs expr =
   match expr with
   | C_ast.ConstantInt (_, i) -> (func_ctx, instrs, ConstantInt i)
@@ -24,6 +34,14 @@ let rec generate_tacky_expr func_ctx instrs expr =
     let dst = Var dst_name in
     let tacky_op = convert_unop unary_op in
     let instrs = instrs @ [Unary (tacky_op, src, dst)] in
+    (func_ctx, instrs, dst)
+  | C_ast.Binary (_, binary_op, src1, src2) ->
+    let (func_ctx, instrs, v1) = generate_tacky_expr func_ctx instrs src1 in
+    let (func_ctx, instrs, v2) = generate_tacky_expr func_ctx instrs src2 in
+    let (func_ctx, dst_name) = make_temporary func_ctx in
+    let dst = Var dst_name in
+    let tacky_op = convert_binop binary_op in
+    let instrs = instrs @ [Binary (tacky_op, v1, v2, dst)] in
     (func_ctx, instrs, dst)
 
 let generate_tacky_stmt func_ctx (C_ast.StmtReturn (_, expr)) =

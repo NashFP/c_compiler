@@ -12,7 +12,14 @@
 %token<C_ast.loc_type> MINUSMINUS
 %token<C_ast.loc_type> MINUS
 %token<C_ast.loc_type> TILDE
+%token<C_ast.loc_type> ASTERISK
+%token<C_ast.loc_type> SLASH
+%token<C_ast.loc_type> PLUS
+%token<C_ast.loc_type> PERCENT
 %token EOF
+
+%left PLUS MINUS
+%left ASTERISK SLASH PERCENT
 
 %start<C_ast.program_type> program
 %%
@@ -32,4 +39,13 @@ exp: CONSTANT_INT { C_ast.ConstantInt (fst $1, snd $1) }
     | MINUS exp { C_ast.Unary ($1, Negate, $2) }
     | TILDE exp { C_ast.Unary ($1, Complement, $2) }
     | LPAREN exp RPAREN { $2 }
+    | exp binop exp { C_ast.Binary (C_ast.exp_loc $1, $2, $1, $3) }
   ;
+
+binop: PLUS { C_ast.Add }
+    | ASTERISK { C_ast.Multiply }
+    | MINUS { C_ast.Subtract }
+    | SLASH { C_ast.Divide }
+    | PERCENT { C_ast.Remainder }
+  ;
+

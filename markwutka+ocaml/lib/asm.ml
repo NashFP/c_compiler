@@ -27,6 +27,8 @@ let generate_asm_instr instrs instr =
   | Tacky.Unary (unop, src, dst) ->
       Unary (convert_unop unop, convert_operand dst) ::
       Mov (convert_operand src, convert_operand dst) :: instrs
+  | Tacky.Binary (_binop, _src1, _src2, _dst) -> instrs
+
   
 let generate_asm_func (Tacky.Function (name, instrs)) =
   let instrs_rev = List.fold_left generate_asm_instr [] instrs in
