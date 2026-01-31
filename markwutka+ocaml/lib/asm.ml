@@ -1,13 +1,19 @@
 module StringMap = Map.Make(String)
 
-type reg_type = AX | R10
+type reg_type = AX | DX | R10 | R11
 type operand_type = Imm of int64 | Reg of reg_type | Pseudo of string |
     Stack of int
 type unary_operator = Neg | Not
-type instruction = Mov of operand_type * operand_type
-    | Unary of unary_operator * operand_type
-    | AllocateStack of int
-    | Ret
+type binary_operator = Add | Sub | Mult
+type instruction =
+    Mov of operand_type * operand_type
+  | Unary of unary_operator * operand_type
+  | Binary of binary_operator * operand_type * operand_type
+  | Idiv of operand_type
+  | Cdq
+  | AllocateStack of int
+  | Ret
+    
 type function_definition = Function of string * instruction list
 type program_type = Program of function_definition
 
@@ -16,6 +22,13 @@ let convert_unop unop =
   | Tacky.Complement -> Not
   | Tacky.Negate -> Neg
 
+let convert_binop binary_operator =
+  match binary_operator with
+  | Tacky.Add -> Add
+  | Tacky.Multiply -> Mult
+  | Tacky.Subtract -> Sub
+  | _ -> failwith "Tried to convert wrong binary operator"
+         
 let convert_operand operand =
   match operand with
   | Tacky.ConstantInt i -> Imm i
@@ -25,10 +38,22 @@ let generate_asm_instr instrs instr =
   match instr with
   | Tacky.Return v -> Ret :: Mov (convert_operand v, Reg AX) :: instrs
   | Tacky.Unary (unop, src, dst) ->
-      Unary (convert_unop unop, convert_operand dst) ::
-      Mov (convert_operand src, convert_operand dst) :: instrs
-  | Tacky.Binary (_binop, _src1, _src2, _dst) -> instrs
-
+    Unary (convert_unop unop, convert_operand dst) ::
+    Mov (convert_operand src, convert_operand dst) :: instrs
+  | Tacky.Binary (Divide, src1, src2, dst) ->
+    Mov (Reg AX, convert_operand dst) ::
+    Idiv (convert_operand src2) ::
+    Cdq ::
+    Mov (convert_operand src1, Reg AX) :: instrs
+  | Tacky.Binary (Remainder, src1, src2, dst) ->
+    Mov (Reg DX, convert_operand dst) ::
+    Idiv (convert_operand src2) ::
+    Cdq ::
+    Mov (convert_operand src1, Reg AX) :: instrs
+  | Tacky.Binary (binary_operator, src1, src2, dst) ->
+    Binary (convert_binop binary_operator, convert_operand src2,
+            convert_operand dst) ::
+    Mov (convert_operand src1, convert_operand dst) :: instrs
   
 let generate_asm_func (Tacky.Function (name, instrs)) =
   let instrs_rev = List.fold_left generate_asm_instr [] instrs in
@@ -62,7 +87,17 @@ let replace_pseudo (var_map, stack_size, instrs) instr =
   | Unary (op, operand) ->
     let (var_map, stack_size, new_operand) =
       replace_op_pseudo var_map stack_size operand in
-      (var_map, stack_size, (Unary (op, new_operand)) :: instrs)
+    (var_map, stack_size, (Unary (op, new_operand)) :: instrs)
+  | Binary (op, op1, op2) ->
+    let (var_map, stack_size, new_operand1) =
+      replace_op_pseudo var_map stack_size op1 in
+    let (var_map, stack_size, new_operand2) =
+      replace_op_pseudo var_map stack_size op2 in
+    (var_map, stack_size, (Binary (op, new_operand1, new_operand2)) :: instrs)
+  | Idiv operand ->
+    let (var_map, stack_size, new_operand) =
+      replace_op_pseudo var_map stack_size operand in
+    (var_map, stack_size, Idiv new_operand :: instrs)
   | rest -> (var_map, stack_size, rest :: instrs)
 
 let replace_pseudo_func (Function (name, instrs)) =
@@ -79,6 +114,18 @@ let fixup_instr instrs instr =
   | Mov (Stack src, Stack dst) ->
     (Mov (Reg R10, Stack dst)) ::
     (Mov (Stack src, Reg R10)) :: instrs
+  | Idiv src ->
+    Idiv (Reg R10) :: Mov (src, Reg R10) :: instrs
+  | Binary (Add, Stack src, Stack dst) ->
+    Binary (Add, Reg R10, Stack dst) ::
+    Mov (Stack src, Reg R10) :: instrs
+  | Binary (Sub, Stack src, Stack dst) ->
+    Binary (Sub, Reg R10, Stack dst) ::
+    Mov (Stack src, Reg R10) :: instrs
+  | Binary (Mult, src, Stack dst) ->
+    Mov (Reg R11, Stack dst) ::
+    Binary (Mult, src, Reg R11) ::
+    Mov (Stack dst, Reg R11) :: instrs
   | rest -> rest :: instrs
 
 let fixup_func (Function (name, instrs)) stack_size =
@@ -91,23 +138,35 @@ let fixup_program (Program func_def) stack_size =
 let emit_operand operand =
   match operand with
   | Reg AX -> "%eax"
+  | Reg DX -> "%edx"
   | Reg R10 -> "%r10d"
+  | Reg R11 -> "%r11d"
   | Stack v -> Printf.sprintf "%d(%%rbp)" v
   | Imm v -> Printf.sprintf "$%Ld" v
   | Pseudo _ -> failwith "Pseudo register not removed"
 
-let emit_unop unop =
-  match unop with
+let emit_unop = function
   | Neg -> "negl"
   | Not -> "notl"
 
+let emit_binop = function
+  | Add -> "addl"
+  | Sub -> "subl"
+  | Mult -> "imull"
+           
 let emit_instr instrs instr =
   match instr with
   | Mov(src, dst) -> (Printf.sprintf "    movl   %s, %s\n"
     (emit_operand src) (emit_operand dst)) :: instrs
   | Unary (op, operand) ->
     (Printf.sprintf "    %s    %s\n"
-      (emit_unop op) (emit_operand operand)) :: instrs
+       (emit_unop op) (emit_operand operand)) :: instrs
+  | Binary (op, src, dst) ->
+    (Printf.sprintf "    %s    %s, %s\n"
+       (emit_binop op) (emit_operand src) (emit_operand dst)) :: instrs
+  | Idiv operand ->
+    (Printf.sprintf "    idivl    %s\n" (emit_operand operand)) :: instrs
+  | Cdq -> "    cdq\n" :: instrs
   | Ret -> "    ret\n" :: "    popq    %rbp\n" ::
     "    movq    %rbp, %rsp\n" :: instrs
   | AllocateStack v ->
