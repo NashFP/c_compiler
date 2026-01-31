@@ -1,6 +1,6 @@
 module StringMap = Map.Make(String)
 
-type reg_type = AX | DX | R10 | R11
+type reg_type = AX | DX | R10 | R11 | CX | CL
 type operand_type = Imm of int64 | Reg of reg_type | Pseudo of string |
     Stack of int
 type unary_operator = Neg | Not
@@ -132,6 +132,24 @@ let fixup_instr instrs instr =
     Mov (Reg R11, Stack dst) ::
     Binary (Mult, src, Reg R11) ::
     Mov (Stack dst, Reg R11) :: instrs
+  | Binary (BitwiseAnd, src, Stack dst) ->
+    Mov (Reg R11, Stack dst) ::
+    Binary (BitwiseAnd, src, Reg R11) ::
+    Mov (Stack dst, Reg R11) :: instrs
+  | Binary (BitwiseOr, src, Stack dst) ->
+    Mov (Reg R11, Stack dst) ::
+    Binary (BitwiseOr, src, Reg R11) ::
+    Mov (Stack dst, Reg R11) :: instrs
+  | Binary (BitwiseXor, src, Stack dst) ->
+    Mov (Reg R11, Stack dst) ::
+    Binary (BitwiseXor, src, Reg R11) ::
+    Mov (Stack dst, Reg R11) :: instrs
+  | Binary (ShiftLeft, src, dst) ->
+    Binary (ShiftLeft, Reg CL, dst) ::
+    Mov (src, Reg CX) :: instrs
+  | Binary (ShiftRight, src, dst) ->
+    Binary (ShiftRight, Reg CL, dst) ::
+    Mov (src, Reg CX) :: instrs
   | rest -> rest :: instrs
 
 let fixup_func (Function (name, instrs)) stack_size =
@@ -147,6 +165,8 @@ let emit_operand operand =
   | Reg DX -> "%edx"
   | Reg R10 -> "%r10d"
   | Reg R11 -> "%r11d"
+  | Reg CX -> "%ecx"
+  | Reg CL -> "%cl"
   | Stack v -> Printf.sprintf "%d(%%rbp)" v
   | Imm v -> Printf.sprintf "$%Ld" v
   | Pseudo _ -> failwith "Pseudo register not removed"
@@ -162,8 +182,8 @@ let emit_binop = function
   | BitwiseAnd -> "andl"
   | BitwiseOr -> "orl"
   | BitwiseXor -> "xorl"
-  | ShiftLeft -> "shll"
-  | ShiftRight -> "shrl"
+  | ShiftLeft -> "sall"
+  | ShiftRight -> "sarl"
            
 let emit_instr instrs instr =
   match instr with
