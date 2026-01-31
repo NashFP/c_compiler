@@ -3,7 +3,8 @@
    line number, and column in order to report errors. *)
 
 type unary_op = Complement | Negate
-type binary_op = Add | Subtract | Multiply | Divide | Remainder
+type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft | ShiftRight |
+                 BitwiseAnd | BitwiseOr | BitwiseXor
 type loc_type = Location of string * int * int
   and exp_type = ConstantInt of loc_type * int64 | Unary of loc_type * unary_op * exp_type |
     Binary of loc_type * binary_op * exp_type * exp_type

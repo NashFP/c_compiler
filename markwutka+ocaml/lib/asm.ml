@@ -4,7 +4,8 @@ type reg_type = AX | DX | R10 | R11
 type operand_type = Imm of int64 | Reg of reg_type | Pseudo of string |
     Stack of int
 type unary_operator = Neg | Not
-type binary_operator = Add | Sub | Mult
+type binary_operator = Add | Sub | Mult | ShiftLeft | ShiftRight |
+                       BitwiseAnd | BitwiseOr | BitwiseXor
 type instruction =
     Mov of operand_type * operand_type
   | Unary of unary_operator * operand_type
@@ -27,6 +28,11 @@ let convert_binop binary_operator =
   | Tacky.Add -> Add
   | Tacky.Multiply -> Mult
   | Tacky.Subtract -> Sub
+  | Tacky.ShiftLeft -> ShiftLeft
+  | Tacky.ShiftRight -> ShiftRight
+  | Tacky.BitwiseAnd -> BitwiseAnd
+  | Tacky.BitwiseOr -> BitwiseOr
+  | Tacky.BitwiseXor -> BitwiseXor
   | _ -> failwith "Tried to convert wrong binary operator"
          
 let convert_operand operand =
@@ -153,6 +159,11 @@ let emit_binop = function
   | Add -> "addl"
   | Sub -> "subl"
   | Mult -> "imull"
+  | BitwiseAnd -> "andl"
+  | BitwiseOr -> "orl"
+  | BitwiseXor -> "xorl"
+  | ShiftLeft -> "shll"
+  | ShiftRight -> "shrl"
            
 let emit_instr instrs instr =
   match instr with

@@ -1,5 +1,6 @@
 type unary_operator = Complement | Negate
-type binary_operator = Add | Subtract | Multiply | Divide | Remainder
+type binary_operator = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
+                       ShiftRight | BitwiseAnd | BitwiseOr | BitwiseXor
 type val_type = ConstantInt of int64 | Var of string
 type instruction = Return of val_type | Unary of unary_operator * val_type * val_type |
   Binary of binary_operator * val_type * val_type * val_type
@@ -23,6 +24,11 @@ let convert_binop binary_op =
   | C_ast.Multiply -> Multiply
   | C_ast.Divide -> Divide
   | C_ast.Remainder -> Remainder
+  | C_ast.ShiftLeft -> ShiftLeft
+  | C_ast.ShiftRight -> ShiftRight
+  | C_ast.BitwiseAnd -> BitwiseAnd
+  | C_ast.BitwiseOr -> BitwiseOr
+  | C_ast.BitwiseXor -> BitwiseXor
 
 let rec generate_tacky_expr func_ctx instrs expr =
   match expr with
@@ -38,7 +44,7 @@ let rec generate_tacky_expr func_ctx instrs expr =
   | C_ast.Binary (_, binary_op, src1, src2) ->
     let (func_ctx, instrs, v1) = generate_tacky_expr func_ctx instrs src1 in
     let (func_ctx, instrs, v2) = generate_tacky_expr func_ctx instrs src2 in
-    let (func_ctx, dst_name) = make_temporary func_ctx in
+    let (func_ctx, dst_name) = make_temporary func_ctx in    
     let dst = Var dst_name in
     let tacky_op = convert_binop binary_op in
     let instrs = instrs @ [Binary (tacky_op, v1, v2, dst)] in

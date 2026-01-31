@@ -19,6 +19,11 @@ let str_of_token = function
   | SLASH -> "/"
   | PLUS -> "+"
   | PERCENT -> "%"
+  | LESSLESS -> "<<"
+  | GREATERGREATER -> ">>"
+  | AMPERSAND -> "&"
+  | CARAT -> "^"
+  | PIPE -> "|"
   | EOF -> "end of file"
 
 let ident_str = function
@@ -67,6 +72,11 @@ let is_binop = function
   | ASTERISK -> true
   | SLASH -> true
   | PERCENT -> true
+  | LESSLESS -> true
+  | GREATERGREATER -> true
+  | AMPERSAND -> true
+  | CARAT -> true
+  | PIPE -> true
   | _ -> false
 
 let binop_precedence = function
@@ -75,6 +85,11 @@ let binop_precedence = function
   | PERCENT -> 50
   | PLUS -> 40
   | MINUS -> 40
+  | LESSLESS -> 38
+  | GREATERGREATER -> 38
+  | AMPERSAND -> 35
+  | CARAT -> 34
+  | PIPE -> 33
   | _ -> 99
 
 let parse_unop tokens =
@@ -92,6 +107,11 @@ let parse_binop tokens =
   | ASTERISK -> (Multiply, next_tokens)
   | SLASH -> (Divide, next_tokens)
   | PERCENT -> (Remainder, next_tokens)
+  | LESSLESS -> (ShiftLeft, next_tokens)
+  | GREATERGREATER -> (ShiftRight, next_tokens)
+  | AMPERSAND -> (BitwiseAnd, next_tokens)
+  | CARAT -> (BitwiseXor, next_tokens)
+  | PIPE -> (BitwiseOr, next_tokens)
   | _ -> fail_at loc (Printf.sprintf "Unexpected binary operator %s" (str_of_token tok))
 
 let rec parse_factor tokens =

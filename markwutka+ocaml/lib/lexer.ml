@@ -16,6 +16,11 @@ type token_type =
   | SLASH
   | PLUS
   | PERCENT
+  | LESSLESS
+  | GREATERGREATER
+  | AMPERSAND
+  | PIPE
+  | CARAT
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -27,6 +32,11 @@ let int_regex = Str.regexp "[0-9]+\\b"
 
 let identifier_regex = Str.regexp "[A-Za-z_][A-Za-z0-9_]*\\b"
 
+let fail_at lexer  message =
+  (Printf.printf "%s, line %d, column %d: %s\n"
+     (Filename.basename lexer.lexer_filename)
+     lexer.lexer_file_line (lexer.lexer_pos+1) message; exit 1)
+  
 let rec parse_line_command lexer =
   if lexer.lexer_lines == [] then
     lexer
@@ -111,9 +121,7 @@ let make_lexer filename =
 
 let parse_integer lexer =
   match match_regex lexer int_regex with
-  | (None, _) -> (Printf.printf "%s, line %d, column %d: Invalid integer constant\n"
-                    (Filename.basename lexer.lexer_filename)
-                    lexer.lexer_file_line (lexer.lexer_pos+1); exit 1)
+  | (None, _) -> fail_at lexer "Invalid integer constant"
   | (Some str, lexer) ->
     (CONSTANT_INT (Int64.of_string str), lexer)
 
@@ -126,9 +134,7 @@ let make_identifier_token ident =
 
 let parse_identifier lexer =
   match match_regex lexer identifier_regex with
-  | (None, _) -> (Printf.printf "%s, line %d, column %d: Invalid identifier\n"
-                    (Filename.basename lexer.lexer_filename)
-                    lexer.lexer_file_line (lexer.lexer_pos+1); exit 1)
+  | (None, _) -> fail_at lexer "Invalid identifier"
   | (Some str, lexer) -> (str, lexer)
 
 let tokenize lexer =
@@ -154,6 +160,22 @@ let tokenize lexer =
         match peek lexer with
         | Some '-' -> tokenize_1 (skip lexer) ((MINUSMINUS,loc) :: tokens)
         | _ -> tokenize_1 lexer ((MINUS,loc) :: tokens)
+      else if ch == '<' then
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '<' -> tokenize_1 (skip lexer) ((LESSLESS,loc) :: tokens)
+        | _ -> fail_at lexer "Invalid token <"
+      else if ch == '>' then
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '>' -> tokenize_1 (skip lexer) ((LESSLESS,loc) :: tokens)
+        | _ -> fail_at lexer "Invalid token >"
+      else if ch == '&' then
+        tokenize_1 (skip lexer) ((AMPERSAND, loc) :: tokens)        
+      else if ch == '^' then
+        tokenize_1 (skip lexer) ((CARAT, loc) :: tokens)        
+      else if ch == '|' then
+        tokenize_1 (skip lexer) ((PIPE, loc) :: tokens)        
       else if ch == '(' then
         tokenize_1 (skip lexer) ((LPAREN, loc) :: tokens)
       else if ch == ')' then
