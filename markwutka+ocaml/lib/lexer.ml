@@ -21,6 +21,15 @@ type token_type =
   | AMPERSAND
   | PIPE
   | CARAT
+  | BANG
+  | AMPAMP
+  | PIPEPIPE
+  | EQUALEQUAL
+  | BANGEQUAL
+  | LESS
+  | GREATER
+  | LESSEQUAL
+  | GREATEREQUAL
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -164,18 +173,36 @@ let tokenize lexer =
         let lexer = skip lexer in
         match peek lexer with
         | Some '<' -> tokenize_1 (skip lexer) ((LESSLESS,loc) :: tokens)
-        | _ -> fail_at lexer "Invalid token <"
+        | Some '=' -> tokenize_1 (skip lexer) ((LESSEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((LESS,loc) :: tokens)
       else if ch == '>' then
         let lexer = skip lexer in
         match peek lexer with
         | Some '>' -> tokenize_1 (skip lexer) ((GREATERGREATER,loc) :: tokens)
-        | _ -> fail_at lexer "Invalid token >"
+        | Some '=' -> tokenize_1 (skip lexer) ((GREATEREQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((GREATER,loc) :: tokens)
       else if ch == '&' then
-        tokenize_1 (skip lexer) ((AMPERSAND, loc) :: tokens)        
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '&' -> tokenize_1 (skip lexer) ((AMPAMP,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((AMPERSAND, loc) :: tokens)        
       else if ch == '^' then
         tokenize_1 (skip lexer) ((CARAT, loc) :: tokens)        
       else if ch == '|' then
-        tokenize_1 (skip lexer) ((PIPE, loc) :: tokens)        
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '|' -> tokenize_1 (skip lexer) ((PIPEPIPE,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((PIPE, loc) :: tokens)
+      else if ch == '=' then
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((EQUALEQUAL,loc) :: tokens)
+        | _ -> fail_at lexer (Printf.sprintf ("Invalid token ="))
+      else if ch == '!' then
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((BANGEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((BANG,loc) :: tokens)
       else if ch == '(' then
         tokenize_1 (skip lexer) ((LPAREN, loc) :: tokens)
       else if ch == ')' then

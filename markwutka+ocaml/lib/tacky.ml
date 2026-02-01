@@ -16,6 +16,7 @@ let convert_unop unary_op =
   match unary_op with
   | C_ast.Complement -> Complement
   | C_ast.Negate -> Negate
+  | _ -> failwith "other unops not implemented yet"
 
 let convert_binop binary_op =
   match binary_op with
@@ -29,6 +30,7 @@ let convert_binop binary_op =
   | C_ast.BitwiseAnd -> BitwiseAnd
   | C_ast.BitwiseOr -> BitwiseOr
   | C_ast.BitwiseXor -> BitwiseXor
+  | _ -> failwith "other binops not implemented yet"
 
 let rec generate_tacky_expr func_ctx instrs expr =
   match expr with

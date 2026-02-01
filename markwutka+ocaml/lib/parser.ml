@@ -25,6 +25,15 @@ let str_of_token = function
   | CARAT -> "^"
   | PIPE -> "|"
   | EOF -> "end of file"
+  | BANG -> "!"
+  | BANGEQUAL -> "!="
+  | AMPAMP -> "&&"
+  | PIPEPIPE -> "||"
+  | EQUALEQUAL -> "=="
+  | LESS -> "<"
+  | LESSEQUAL -> "<="
+  | GREATER -> ">"
+  | GREATEREQUAL -> ">="
 
 let ident_str = function
   | IDENTIFIER str -> str
@@ -77,26 +86,49 @@ let is_binop = function
   | AMPERSAND -> true
   | CARAT -> true
   | PIPE -> true
+  | AMPAMP -> true
+  | PIPEPIPE -> true
+  | EQUALEQUAL -> true
+  | BANGEQUAL -> true
+  | LESS -> true
+  | LESSEQUAL -> true
+  | GREATER -> true
+  | GREATEREQUAL -> true
   | _ -> false
 
 let binop_precedence = function
   | ASTERISK -> 50
   | SLASH -> 50
   | PERCENT -> 50
-  | PLUS -> 40
-  | MINUS -> 40
-  | LESSLESS -> 38
-  | GREATERGREATER -> 38
-  | AMPERSAND -> 35
-  | CARAT -> 34
-  | PIPE -> 33
+  | PLUS -> 45
+  | MINUS -> 45
+  | LESSLESS -> 40
+  | GREATERGREATER -> 40
+  | LESS -> 35
+  | LESSEQUAL -> 35
+  | GREATER -> 35
+  | GREATEREQUAL -> 35
+  | EQUALEQUAL -> 30
+  | BANGEQUAL -> 30
+  | AMPERSAND -> 25
+  | CARAT -> 20
+  | PIPE -> 15
+  | AMPAMP -> 10
+  | PIPEPIPE -> 5
   | _ -> 99
 
+let is_unop = function
+  | MINUS -> true
+  | TILDE -> true
+  | BANG -> true
+  | _ -> false
+    
 let parse_unop tokens =
   let ((tok,loc), next_tokens) = peek tokens in
   match tok with
   | MINUS -> (Negate, next_tokens)
   | TILDE -> (Complement, next_tokens)
+  | BANG -> (Not, next_tokens)
   | _ -> fail_at loc (Printf.sprintf "Unexpected unary operator %s" (str_of_token tok))
 
 let parse_binop tokens =
@@ -112,13 +144,21 @@ let parse_binop tokens =
   | AMPERSAND -> (BitwiseAnd, next_tokens)
   | CARAT -> (BitwiseXor, next_tokens)
   | PIPE -> (BitwiseOr, next_tokens)
+  | LESS -> (LessThan, next_tokens)
+  | LESSEQUAL -> (LessOrEqual, next_tokens)
+  | GREATER -> (GreaterThan, next_tokens)
+  | GREATEREQUAL -> (GreaterOrEqual, next_tokens)
+  | EQUALEQUAL -> (Equal, next_tokens)
+  | BANGEQUAL -> (NotEqual, next_tokens)
+  | AMPAMP -> (And, next_tokens)
+  | PIPEPIPE -> (Or, next_tokens)
   | _ -> fail_at loc (Printf.sprintf "Unexpected binary operator %s" (str_of_token tok))
 
 let rec parse_factor tokens =
   let ((tok,loc), next_tokens) = peek tokens in
   if same_token tok (CONSTANT_INT 0L) then
     (ConstantInt (loc, constant_int_val tok), next_tokens)
-  else if (same_token tok MINUS) || (same_token tok TILDE) then
+  else if is_unop tok then
     let (unop, tokens) = parse_unop tokens in
     let (inner_expr, tokens) = parse_factor tokens in
     (Unary (loc, unop, inner_expr), tokens)
