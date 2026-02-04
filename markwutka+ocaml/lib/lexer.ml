@@ -30,6 +30,7 @@ type token_type =
   | GREATER
   | LESSEQUAL
   | GREATEREQUAL
+  | EQUAL
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -197,7 +198,7 @@ let tokenize lexer =
         let lexer = skip lexer in
         match peek lexer with
         | Some '=' -> tokenize_1 (skip lexer) ((EQUALEQUAL,loc) :: tokens)
-        | _ -> fail_at lexer (Printf.sprintf ("Invalid token ="))
+        | _ -> tokenize_1 lexer ((EQUAL, loc) :: tokens)
       else if ch == '!' then
         let lexer = skip lexer in
         match peek lexer with

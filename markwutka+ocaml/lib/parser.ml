@@ -34,6 +34,7 @@ let str_of_token = function
   | LESSEQUAL -> "<="
   | GREATER -> ">"
   | GREATEREQUAL -> ">="
+  | EQUAL -> "="
 
 let ident_str = function
   | IDENTIFIER str -> str
@@ -67,6 +68,15 @@ let expect_and_get expected tokens =
        fail_at loc (Printf.sprintf "Expected %s but found %s\n"
           (str_of_token expected) (str_of_token tok))
 
+let expect_identifier tokens =
+  match tokens with
+  | [] -> (Printf.printf "Expected identifier, but found end of file\n";
+           exit 1)
+  | ((IDENTIFIER str), loc) :: tokens -> (str, loc, tokens)
+  | (other, loc) :: _ ->
+     fail_at loc (Printf.sprintf "Expected identifier but found %s"
+                  (str_of_token other))
+  
 let expect expected tokens =
   let (_, _, tokens) = expect_and_get expected tokens in
   tokens
@@ -158,6 +168,8 @@ let rec parse_factor tokens =
   let ((tok,loc), next_tokens) = peek tokens in
   if same_token tok (CONSTANT_INT 0L) then
     (ConstantInt (loc, constant_int_val tok), next_tokens)
+  else if same_token tok (IDENTIFIER "") then
+    (Var (loc, ident_str tok), next_tokens)
   else if is_unop tok then
     let (unop, tokens) = parse_unop tokens in
     let (inner_expr, tokens) = parse_factor tokens in
@@ -173,8 +185,11 @@ and parse_expr tokens min_prec =
   let ((_,loc),_) = peek tokens in
   let (left, tokens) = parse_factor tokens in
   let rec parse_expr1 loc curr_left tokens min_prec =
-    let ((tok,_), _) = peek tokens in
-    if (is_binop tok) && (binop_precedence tok) >= min_prec then
+    let ((tok,_), next_tokens) = peek tokens in
+    if same_token tok EQUAL then
+      let (right, tokens) = parse_expr next_tokens 1 in
+      parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
+    else if (is_binop tok) && (binop_precedence tok) >= min_prec then
       let (operator, tokens) = parse_binop tokens in
       let (right, tokens) = parse_expr tokens ((binop_precedence tok) + 1) in
       parse_expr1 loc (Binary (loc, operator, curr_left, right)) tokens min_prec
@@ -184,10 +199,43 @@ and parse_expr tokens min_prec =
   parse_expr1 loc left tokens min_prec
   
 let parse_statement tokens =
-  let (_, loc, tokens) = expect_and_get RETURN tokens in
-  let (expr, tokens) = parse_expr tokens 0 in
-  let tokens = expect SEMI tokens in
-  (StmtReturn (loc, expr), tokens)
+  match peek tokens with
+  | ((RETURN,loc),tokens) ->
+     let (expr, tokens) = parse_expr tokens 0 in
+     let tokens = expect SEMI tokens in
+     (Return (loc, expr), tokens)
+  | ((_,loc),_) -> let (expr, tokens) = parse_expr tokens 0 in
+                   let tokens = expect SEMI tokens in
+         (Expression (loc, expr), tokens)
+
+let parse_declaration tokens =
+  let (_, loc, tokens) = expect_and_get INT tokens in
+  let (var_name, _, tokens) = expect_identifier tokens in
+  match peek tokens with
+  | ((EQUAL,_), tokens) ->
+     let (init_exp, tokens) = parse_expr tokens 0 in
+     let tokens = expect SEMI tokens in
+     (Declaration (loc, var_name, Some init_exp), tokens)
+  | ((SEMI,_), tokens) ->
+     (Declaration (loc, var_name, None), tokens)
+  | ((other,loc), _) -> fail_at loc
+                         (Printf.sprintf "Invalid declaration, expected ';', but found %s"
+                          (str_of_token other))
+       
+let parse_block_items tokens =
+  let rec parse_block_items_1 tokens items =
+    match peek tokens with
+    | ((SEMI,_), tokens) -> parse_block_items_1 tokens items
+    | ((RBRACE,_), _) -> (List.rev items, tokens)
+    | ((INT,_), _) ->
+       let (decl, tokens) = parse_declaration tokens in
+       parse_block_items_1 tokens (D decl :: items)
+    | _ ->
+       let (stmt, tokens) = parse_statement tokens in
+       parse_block_items_1 tokens (S stmt :: items)
+  in
+  parse_block_items_1 tokens []
+
 let parse_function tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
   let (ident, _, tokens) = expect_and_get (IDENTIFIER "") tokens in
@@ -195,7 +243,7 @@ let parse_function tokens =
   let tokens = expect VOID tokens in
   let tokens = expect RPAREN tokens in
   let tokens = expect LBRACE tokens in
-  let (stmt, tokens) = parse_statement tokens in
+  let (stmt, tokens) = parse_block_items tokens in
   let tokens = expect RBRACE tokens in
   (FunctionDef (loc, ident_str ident, stmt), tokens)
 

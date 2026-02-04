@@ -51,14 +51,20 @@ let rec generate_tacky_expr func_ctx instrs expr =
     let tacky_op = convert_binop binary_op in
     let instrs = instrs @ [Binary (tacky_op, v1, v2, dst)] in
     (func_ctx, instrs, dst)
+  | _ -> failwith "tacky can't match expr"
 
-let generate_tacky_stmt func_ctx (C_ast.StmtReturn (_, expr)) =
-let (func_ctx, instrs, dst) = generate_tacky_expr func_ctx [] expr in
-  (func_ctx, instrs @ [Return dst])
+let generate_tacky_stmt func_ctx stmt =
+  match stmt with
+  | (C_ast.Return (_, expr)) ->
+     let (func_ctx, instrs, dst) = generate_tacky_expr func_ctx [] expr in
+     (func_ctx, instrs @ [Return dst])
+  | _ -> failwith "tacky can't match stmt"
 
-let generate_tacky_function (C_ast.FunctionDef (_, name, stmt)) =
-  let func_ctx = { func_name=name; func_next_temp_num=0 } in
-  let (_, instrs) = generate_tacky_stmt func_ctx stmt in
+let generate_block_item instrs _item = instrs
+
+let generate_tacky_function (C_ast.FunctionDef (_, name, block_items)) =
+  let _func_ctx = { func_name=name; func_next_temp_num=0 } in
+  let instrs = List.fold_left generate_block_item [] block_items in
   Function (name, instrs)
 
 let generate_tacky_program (C_ast.Program func_type) =
