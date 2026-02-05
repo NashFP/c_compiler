@@ -8,6 +8,8 @@ let str_of_token = function
   | INT -> "int"
   | VOID -> "void"
   | RETURN -> "return"
+  | IF -> "if"
+  | ELSE -> "else"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -47,6 +49,8 @@ let str_of_token = function
   | CARATEQUAL -> "^="
   | LESSLESSEQUAL -> "<<="
   | GREATERGREATEREQUAL -> ">>="
+  | QUESTION -> "?"
+  | COLON -> ":"
 
 let ident_str = function
   | IDENTIFIER str -> str
@@ -114,6 +118,7 @@ let is_binop = function
   | LESSEQUAL -> true
   | GREATER -> true
   | GREATEREQUAL -> true
+  | QUESTION -> true
   | _ -> false
 
 let binop_precedence = function
@@ -135,6 +140,7 @@ let binop_precedence = function
   | PIPE -> 15
   | AMPAMP -> 10
   | PIPEPIPE -> 5
+  | QUESTION -> 3
   | EQUAL -> 2
   | PLUSEQUAL -> 2
   | MINUSEQUAL -> 2
@@ -205,7 +211,8 @@ let parse_unop tokens =
   | BANG -> (Not, next_tokens)
   | PLUSPLUS -> (PreInc, next_tokens)
   | MINUSMINUS -> (PreDec, next_tokens)
-  | _ -> fail_at loc (Printf.sprintf "Unexpected unary operator %s" (str_of_token tok))
+  | _ -> fail_at loc (Printf.sprintf "Unexpected unary operator %s"
+                        (str_of_token tok))
 
 let parse_binop tokens =
   let ((tok,loc), next_tokens) = peek tokens in
@@ -276,21 +283,43 @@ and parse_expr tokens min_prec =
       else
         parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
     else if (is_binop tok) && (binop_precedence tok) >= min_prec then
-      let (operator, tokens) = parse_binop tokens in
-      let (right, tokens) = parse_expr tokens ((binop_precedence tok) + 1) in
-      parse_expr1 loc (Binary (loc, operator, curr_left, right))
-        tokens min_prec
+      match tok with
+      | QUESTION ->
+         let (right, tokens) =
+           parse_expr next_tokens 0 in
+         let tokens = expect COLON tokens in
+         let (false_expr, tokens) =
+           parse_expr tokens (binop_precedence tok) in
+         parse_expr1 loc (Condition (loc, curr_left, right, false_expr))
+           tokens min_prec
+      | _ ->
+         let (operator, tokens) = parse_binop tokens in
+         let (right, tokens) =
+           parse_expr tokens ((binop_precedence tok) + 1) in
+         parse_expr1 loc (Binary (loc, operator, curr_left, right))
+           tokens min_prec
     else
       (curr_left, tokens)
   in
   parse_expr1 loc left tokens min_prec
   
-let parse_statement tokens =
+let rec parse_statement tokens =
   match peek tokens with
   | ((RETURN,loc),tokens) ->
      let (expr, tokens) = parse_expr tokens 0 in
      let tokens = expect SEMI tokens in
      (Return (loc, expr), tokens)
+  | ((IF,loc),tokens) ->
+     let tokens = expect LPAREN tokens in
+     let (test_expr, tokens) = parse_expr tokens 0 in
+     let tokens = expect RPAREN tokens in
+     let (then_stmt, tokens) = parse_statement tokens in
+     (match peek tokens with
+      | ((ELSE, _),tokens) ->
+         let (else_stmt, tokens) = parse_statement tokens in
+         (If (loc, test_expr, then_stmt, Some else_stmt), tokens)
+      | _ -> (If (loc, test_expr, then_stmt, None), tokens))
+  | ((SEMI,_loc),tokens) -> (Null, tokens)
   | ((_,loc),_) -> let (expr, tokens) = parse_expr tokens 0 in
                    let tokens = expect SEMI tokens in
          (Expression (loc, expr), tokens)

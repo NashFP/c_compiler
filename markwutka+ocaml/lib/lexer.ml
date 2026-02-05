@@ -4,6 +4,8 @@ type token_type =
   | INT
   | VOID
   | RETURN
+  | IF
+  | ELSE
   | LPAREN
   | RPAREN
   | LBRACE
@@ -42,6 +44,8 @@ type token_type =
   | GREATERGREATEREQUAL
   | LESSLESSEQUAL
   | CARATEQUAL
+  | QUESTION
+  | COLON
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -151,6 +155,8 @@ let make_identifier_token ident =
   | "int" -> INT
   | "void" -> VOID
   | "return" -> RETURN
+  | "if" -> IF
+  | "else" -> ELSE
   | _ -> IDENTIFIER ident
 
 let parse_identifier lexer =
@@ -264,6 +270,10 @@ let tokenize lexer =
         match peek lexer with
         | Some '=' -> tokenize_1 (skip lexer) ((PERCENTEQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((PERCENT, loc) :: tokens)
+      else if ch == '?' then
+        tokenize_1 (skip lexer) ((QUESTION, loc) :: tokens)
+      else if ch == ':' then
+        tokenize_1 (skip lexer) ((COLON, loc) :: tokens)
       else
         (Printf.printf "%s, line %d, column %d: Unexpected token %c\n"
            (Filename.basename lexer.lexer_filename)

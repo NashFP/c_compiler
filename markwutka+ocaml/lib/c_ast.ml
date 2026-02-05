@@ -17,9 +17,12 @@ and exp_type = ConstantInt of loc_type * int64 |
                Unary of loc_type * unary_op * exp_type |
                Binary of loc_type * binary_op * exp_type * exp_type |
                Var of loc_type * string |
-               Assignment of loc_type * exp_type * exp_type
+               Assignment of loc_type * exp_type * exp_type |
+               Condition of loc_type * exp_type * exp_type * exp_type
   and statement_type = Return of loc_type * exp_type |
                        Expression of loc_type * exp_type |
+                       If of loc_type * exp_type * statement_type *
+                               statement_type option |
                        Null
   and function_def_type = FunctionDef of loc_type * string * block_item list
   and program_type = Program of function_def_type
@@ -33,17 +36,7 @@ let exp_loc exp =
   | Binary (loc,_,_,_) -> loc
   | Var (loc,_) -> loc
   | Assignment (loc,_,_) -> loc
+  | Condition (loc,_,_,_) -> loc
 
-let is_assignment = function
-  | AddEqual -> true
-  | SubtractEqual -> true
-  | MultiplyEqual -> true
-  | DivideEqual -> true
-  | ShiftLeftEqual -> true
-  | ShiftRightEqual ->true
-  | BitwiseAndEqual -> true
-  | BitwiseOrEqual -> true
-  | BitwiseXorEqual -> true
-  | _ -> false
 
 

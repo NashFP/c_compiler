@@ -51,8 +51,13 @@ let resolve_variables ctx (Program func_def) =
                         (compound_name op))
        else
          (ctx, Unary (loc, op, expr))
+    | Condition (loc, test_expr, true_expr, false_expr) ->
+       let (ctx, test_expr) = resolve_expr ctx test_expr in
+       let (ctx, true_expr) = resolve_expr ctx true_expr in
+       let (ctx, false_expr) = resolve_expr ctx false_expr in
+       (ctx, Condition (loc, test_expr, true_expr, false_expr))
   in              
-  let resolve_statement ctx stmt =
+  let rec resolve_statement ctx stmt =
     match stmt with
     | Expression (loc, expr) ->
       let (ctx, expr) = resolve_expr ctx expr in
@@ -60,6 +65,15 @@ let resolve_variables ctx (Program func_def) =
     | Return (loc, expr) ->
       let (ctx, expr) = resolve_expr ctx expr in
       (ctx, Return (loc, expr))
+    | If (loc, expr, true_stmt, maybe_false_stmt) ->
+       let (ctx, expr) = resolve_expr ctx expr in
+       let (ctx, true_stmt) = resolve_statement ctx true_stmt in
+       (match maybe_false_stmt with
+        | Some false_stmt ->
+           let (ctx, false_stmt) = resolve_statement ctx false_stmt in
+           (ctx, If (loc, expr, true_stmt, Some false_stmt))
+        | None ->
+           (ctx, If (loc, expr, true_stmt, None)))
     | Null -> (ctx, Null) in
   let resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
     let (ctx, unique_var) = make_unique_var ctx loc var_name in

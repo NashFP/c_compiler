@@ -126,17 +126,54 @@ let rec generate_tacky_expr ctx instrs expr =
   | C_ast.Assignment (_, C_ast.Var (_, var_name), expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
+  | C_ast.Condition (_, test_expr, true_expr, false_expr) ->
+     let (ctx, false_label_name) = make_func_label ctx "false" in
+     let (ctx, end_label_name) = make_func_label ctx "end" in
+     let (ctx, dst_name) = make_func_temporary ctx in
+     let dst = Var dst_name in
+     let (ctx, instrs, test_expr) =
+       generate_tacky_expr ctx instrs test_expr in
+     let instrs = instrs <:: JumpIfZero (test_expr, false_label_name) in
+     let (ctx, instrs, true_expr) =
+       generate_tacky_expr ctx instrs true_expr in
+     let instrs =
+       instrs
+       <:: Copy (true_expr, dst)
+       <:: Jump end_label_name
+       <:: Label false_label_name in
+     let (ctx, instrs, false_expr) =
+       generate_tacky_expr ctx instrs false_expr in
+     (ctx, instrs <:: Copy (false_expr, dst) <:: Label end_label_name,
+      dst)     
   | _ -> failwith "tacky can't match expr"
 
-let generate_tacky_stmt ctx instrs stmt =
+let rec generate_tacky_stmt ctx instrs stmt =
   match stmt with
-  | (C_ast.Return (_, expr)) ->
+  | C_ast.Return (_, expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Return dst)
-  | (C_ast.Expression (_, expr)) ->
+  | C_ast.Expression (_, expr) ->
     let (ctx, instrs, _dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs)
-  | _ -> failwith "tacky can't match stmt"
+  | C_ast.If (_, test_expr, true_stmt, Some false_stmt) ->
+     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs test_expr in
+     let (ctx, else_label_name) = make_func_label ctx "false" in
+     let (ctx, end_label_name) = make_func_label ctx "end" in
+     let instrs = instrs <:: JumpIfZero (dst, else_label_name) in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs true_stmt in
+     let instrs =
+       instrs
+       <:: Jump end_label_name
+       <:: Label else_label_name in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs false_stmt in
+     (ctx, instrs <:: Label end_label_name)
+  | C_ast.If (_, test_expr, true_stmt, None) ->
+     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs test_expr in
+     let (ctx, end_label_name) = make_func_label ctx "end" in
+     let instrs = instrs <:: JumpIfZero (dst, end_label_name) in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs true_stmt in
+     (ctx, instrs <:: Label end_label_name)
+  | C_ast.Null -> (ctx, instrs)
 
 let generate_tacky_declaration ctx instrs
     (C_ast.Declaration (_, var_name, expr)) =
