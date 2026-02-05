@@ -1,5 +1,6 @@
 open C_ast
 open Lexer
+open Context
 
 let str_of_token = function
   | CONSTANT_INT _ -> Printf.sprintf "int constant"
@@ -51,10 +52,6 @@ let same_token t1 t2 =
   | (CONSTANT_INT _, CONSTANT_INT _) -> true
   | (IDENTIFIER _, IDENTIFIER _) -> true
   | _ -> t1 == t2
-
-let fail_at (C_ast.Location (filename, line, column)) message =
-  Printf.printf "%s, line %d, column %d: %s\n" filename line column message;
-  exit 1
 
 let expect_and_get expected tokens =
   match tokens with

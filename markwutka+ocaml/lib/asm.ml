@@ -60,6 +60,8 @@ let generate_asm_instr instrs instr =
     Binary (convert_binop binary_operator, convert_operand src2,
             convert_operand dst) ::
     Mov (convert_operand src1, convert_operand dst) :: instrs
+  | Tacky.Copy (src, dst) ->
+    Mov (convert_operand src, convert_operand dst) :: instrs
   
 let generate_asm_func (Tacky.Function (name, instrs)) =
   let instrs_rev = List.fold_left generate_asm_instr [] instrs in

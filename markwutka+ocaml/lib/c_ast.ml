@@ -2,6 +2,8 @@
    early chapters, I am keeping track of the original source file,
    line number, and column in order to report errors. *)
 
+module StringMap = Map.Make(String)
+    
 type unary_op = Complement | Negate | Not
 type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
                  ShiftRight | BitwiseAnd | BitwiseOr | BitwiseXor |
@@ -18,7 +20,7 @@ type loc_type = Location of string * int * int
   and function_def_type = FunctionDef of loc_type * string * block_item list
   and program_type = Program of function_def_type
   and declaration_type = Declaration of loc_type * string * exp_type option
-  and block_item = S of statement_type | D of declaration_type
+and block_item = S of statement_type | D of declaration_type                   
 
 let exp_loc exp =
   match exp with

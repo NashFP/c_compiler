@@ -13,6 +13,9 @@ elif [ "$1" = "--parse" ]; then
 elif [ "$1" = "--codegen" ]; then
   MODE="--codegen"
   shift
+elif [ "$1" = "--validate" ]; then
+  MODE="--validate"
+  shift
 elif [ "$1" = "--tacky" ]; then
   MODE="--tacky"
   shift
