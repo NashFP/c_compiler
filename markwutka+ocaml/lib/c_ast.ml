@@ -10,9 +10,8 @@ type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
                  And | Or | Equal | NotEqual | LessThan | LessOrEqual |
                  GreaterThan | GreaterOrEqual |
                  AddEqual | SubtractEqual | MultiplyEqual | DivideEqual |
-                 ShiftLeftEqual | ShiftRightEqual |
-                 BitwiseAndEqual | BitwiseOrEqual | BitwiseXorEqual |
-                 AndEqual | OrEqual
+                 RemainderEqual | ShiftLeftEqual | ShiftRightEqual |
+                 BitwiseAndEqual | BitwiseOrEqual | BitwiseXorEqual
 type loc_type = Location of string * int * int
 and exp_type = ConstantInt of loc_type * int64 |
                Unary of loc_type * unary_op * exp_type |
@@ -45,8 +44,6 @@ let is_assignment = function
   | BitwiseAndEqual -> true
   | BitwiseOrEqual -> true
   | BitwiseXorEqual -> true
-  | AndEqual -> true
-  | OrEqual -> true
   | _ -> false
 
 

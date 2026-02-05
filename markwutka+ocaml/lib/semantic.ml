@@ -1,6 +1,26 @@
 open C_ast
 open Context
 
+let (<::) lst item = item :: lst
+
+let is_lvalue = function
+  | Var (_, _) -> true
+  | _ -> false
+
+let is_compound_op = function
+  | PreInc -> true
+  | PreDec -> true
+  | PostInc -> true
+  | PostDec -> true
+  | _ -> false
+
+let compound_name = function
+  | PreInc -> "pre-increment"
+  | PreDec -> "pre-decrement"
+  | PostInc -> "post-increment"
+  | PostDec -> "post-decrement"
+  | _ -> failwith "Tried to get compound name for non compound op"
+
 let resolve_variables ctx (Program func_def) =
   let rec resolve_expr ctx expr =
     match expr with
@@ -25,8 +45,12 @@ let resolve_variables ctx (Program func_def) =
       (ctx, Binary (loc, op, exp1, exp2))
     | ConstantInt (loc, v) -> (ctx, ConstantInt (loc, v))
     | Unary (loc, op, expr) ->
-      let (ctx, expr) = resolve_expr ctx expr in
-      (ctx, Unary (loc, op, expr))
+       let (ctx, expr) = resolve_expr ctx expr in
+       if (is_compound_op op) && not (is_lvalue expr) then
+         fail_at loc (Printf.sprintf "Can't apply %s to non-lvalue"
+                        (compound_name op))
+       else
+         (ctx, Unary (loc, op, expr))
   in              
   let resolve_statement ctx stmt =
     match stmt with
@@ -56,6 +80,3 @@ let resolve_variables ctx (Program func_def) =
   in
   let (ctx, func_def) = resolve_function ctx func_def in
   (ctx, Program func_def)
-                        
-  
-  

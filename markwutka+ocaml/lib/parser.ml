@@ -161,7 +161,34 @@ let is_assignment_op = function
   | CARATEQUAL -> true
   | PIPEEQUAL -> true
   | _ -> false
-    
+
+let is_compound_op = function
+  | PLUSEQUAL -> true
+  | MINUSEQUAL -> true
+  | ASTERISKEQUAL -> true
+  | SLASHEQUAL -> true
+  | PERCENTEQUAL -> true
+  | LESSLESSEQUAL -> true
+  | GREATERGREATEREQUAL -> true
+  | AMPEQUAL -> true
+  | CARATEQUAL -> true
+  | PIPEEQUAL -> true
+  | _ -> false
+
+let compound_calc_op = function
+  | PLUSEQUAL -> Add
+  | MINUSEQUAL -> Subtract
+  | ASTERISKEQUAL -> Multiply
+  | SLASHEQUAL -> Divide
+  | PERCENTEQUAL -> Remainder
+  | LESSLESSEQUAL -> ShiftLeft
+  | GREATERGREATEREQUAL -> ShiftRight
+  | AMPEQUAL -> BitwiseAnd
+  | CARATEQUAL -> BitwiseXor
+  | PIPEEQUAL -> BitwiseOr
+  | _ -> failwith "Tried to compute compound calc op for non compound op"
+ 
+
 let is_unop = function
   | MINUS -> true
   | TILDE -> true
@@ -241,7 +268,13 @@ and parse_expr tokens min_prec =
     let ((tok,_), next_tokens) = peek tokens in
     if (is_assignment_op tok) && (binop_precedence tok) >= min_prec then
       let (right, tokens) = parse_expr next_tokens 2 in
-      parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
+      if is_compound_op tok then
+        parse_expr1 loc
+          (Assignment (loc, curr_left,
+                       Binary (loc, compound_calc_op tok, curr_left, right)))
+          tokens min_prec
+      else
+        parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
     else if (is_binop tok) && (binop_precedence tok) >= min_prec then
       let (operator, tokens) = parse_binop tokens in
       let (right, tokens) = parse_expr tokens ((binop_precedence tok) + 1) in

@@ -54,6 +54,28 @@ let convert_binop binary_op =
 let rec generate_tacky_expr ctx instrs expr =
   match expr with
   | C_ast.ConstantInt (_, i) -> (ctx, instrs, ConstantInt i)
+  | C_ast.Unary (_, PreInc, unary_expr) ->
+     let (ctx, instrs, src) = generate_tacky_expr ctx instrs unary_expr in
+     (ctx, instrs <:: Binary (Add, src, ConstantInt 1L, src), src)
+  | C_ast.Unary (_, PreDec, unary_expr) ->
+     let (ctx, instrs, src) = generate_tacky_expr ctx instrs unary_expr in
+     (ctx, instrs <:: Binary (Subtract, src, ConstantInt 1L, src), src)
+  | C_ast.Unary (_, PostInc, unary_expr) ->
+     let (ctx, instrs, src) = generate_tacky_expr ctx instrs unary_expr in
+     let (ctx, temp_var) = make_func_temporary ctx in
+     let instrs =
+       instrs
+       <:: Copy (src, Var temp_var)
+       <:: Binary (Add, src, ConstantInt 1L, src)
+     in (ctx, instrs, Var temp_var)
+  | C_ast.Unary (_, PostDec, unary_expr) ->
+     let (ctx, instrs, src) = generate_tacky_expr ctx instrs unary_expr in
+     let (ctx, temp_var) = make_func_temporary ctx in
+     let instrs =
+       instrs
+       <:: Copy (src, Var temp_var)
+       <:: Binary (Subtract, src, ConstantInt 1L, src)
+     in (ctx, instrs, Var temp_var)
   | C_ast.Unary (_, unary_op, unary_expr) ->
     let (ctx, instrs, src) =
       generate_tacky_expr ctx instrs unary_expr in
