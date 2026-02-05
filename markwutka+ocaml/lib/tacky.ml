@@ -1,12 +1,14 @@
 open Context
     
 type unary_operator = Complement | Negate | Not
-type binary_operator = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
-                       ShiftRight | BitwiseAnd | BitwiseOr | BitwiseXor |
+type binary_operator = Add | Subtract | Multiply | Divide | Remainder |
+                       ShiftLeft | ShiftRight | BitwiseAnd | BitwiseOr |
+                       BitwiseXor |
                        Equal | NotEqual | LessThan | LessOrEqual |
                        GreaterThan | GreaterOrEqual | And | Or
 type val_type = ConstantInt of int64 | Var of string
-type instruction = Return of val_type | Unary of unary_operator * val_type * val_type |
+type instruction = Return of val_type |
+                   Unary of unary_operator * val_type * val_type |
                    Binary of binary_operator * val_type * val_type * val_type |
                    Copy of val_type * val_type |
                    Jump of string |
@@ -25,6 +27,7 @@ let convert_unop unary_op =
   | C_ast.Complement -> Complement
   | C_ast.Negate -> Negate
   | C_ast.Not -> Not
+  | _ -> failwith "not implemented yet"
 
 let convert_binop binary_op =
   match binary_op with
@@ -46,6 +49,7 @@ let convert_binop binary_op =
   | C_ast.GreaterOrEqual -> GreaterOrEqual
   | C_ast.And -> And
   | C_ast.Or -> Or
+  | _ -> failwith "error"
 
 let rec generate_tacky_expr ctx instrs expr =
   match expr with

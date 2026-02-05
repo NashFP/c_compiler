@@ -31,6 +31,17 @@ type token_type =
   | LESSEQUAL
   | GREATEREQUAL
   | EQUAL
+  | PLUSPLUS
+  | PLUSEQUAL
+  | MINUSEQUAL
+  | ASTERISKEQUAL
+  | SLASHEQUAL
+  | PERCENTEQUAL
+  | PIPEEQUAL
+  | AMPEQUAL
+  | GREATERGREATEREQUAL
+  | LESSLESSEQUAL
+  | CARATEQUAL
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -169,30 +180,52 @@ let tokenize lexer =
         let lexer = skip lexer in
         match peek lexer with
         | Some '-' -> tokenize_1 (skip lexer) ((MINUSMINUS,loc) :: tokens)
+        | Some '=' -> tokenize_1 (skip lexer) ((MINUSEQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((MINUS,loc) :: tokens)
+      else if ch == '+' then
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '+' -> tokenize_1 (skip lexer) ((PLUSPLUS,loc) :: tokens)
+        | Some '=' -> tokenize_1 (skip lexer) ((PLUSEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((PLUS,loc) :: tokens)
       else if ch == '<' then
         let lexer = skip lexer in
         match peek lexer with
-        | Some '<' -> tokenize_1 (skip lexer) ((LESSLESS,loc) :: tokens)
+        | Some '<' ->
+           let lexer = skip lexer in
+           (match peek lexer with
+            | Some '=' ->
+               tokenize_1 (skip lexer) ((LESSLESSEQUAL,loc) :: tokens)
+            | _ -> tokenize_1 lexer ((LESSLESS,loc) :: tokens))
         | Some '=' -> tokenize_1 (skip lexer) ((LESSEQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((LESS,loc) :: tokens)
       else if ch == '>' then
         let lexer = skip lexer in
         match peek lexer with
-        | Some '>' -> tokenize_1 (skip lexer) ((GREATERGREATER,loc) :: tokens)
+        | Some '>' ->
+           let lexer = skip lexer in
+           (match peek lexer with
+            | Some '=' ->
+               tokenize_1 (skip lexer) ((GREATERGREATEREQUAL,loc) :: tokens)
+            | _ -> tokenize_1 lexer ((GREATERGREATER,loc) :: tokens))
         | Some '=' -> tokenize_1 (skip lexer) ((GREATEREQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((GREATER,loc) :: tokens)
       else if ch == '&' then
         let lexer = skip lexer in
         match peek lexer with
         | Some '&' -> tokenize_1 (skip lexer) ((AMPAMP,loc) :: tokens)
+        | Some '=' -> tokenize_1 (skip lexer) ((AMPEQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((AMPERSAND, loc) :: tokens)        
       else if ch == '^' then
-        tokenize_1 (skip lexer) ((CARAT, loc) :: tokens)        
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((CARATEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((CARAT, loc) :: tokens)
       else if ch == '|' then
         let lexer = skip lexer in
         match peek lexer with
         | Some '|' -> tokenize_1 (skip lexer) ((PIPEPIPE,loc) :: tokens)
+        | Some '=' -> tokenize_1 (skip lexer) ((PIPEEQUAL,loc) :: tokens)
         | _ -> tokenize_1 lexer ((PIPE, loc) :: tokens)
       else if ch == '=' then
         let lexer = skip lexer in
@@ -217,13 +250,20 @@ let tokenize lexer =
       else if ch == ';' then
         tokenize_1 (skip lexer) ((SEMI, loc) :: tokens)
       else if ch == '*' then
-        tokenize_1 (skip lexer) ((ASTERISK, loc) :: tokens)
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((ASTERISKEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((ASTERISK, loc) :: tokens)
       else if ch == '/' then
-        tokenize_1 (skip lexer) ((SLASH, loc) :: tokens)
-      else if ch == '+' then
-        tokenize_1 (skip lexer) ((PLUS, loc) :: tokens)
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((SLASHEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((SLASH, loc) :: tokens)
       else if ch == '%' then
-        tokenize_1 (skip lexer) ((PERCENT, loc) :: tokens)
+        let lexer = skip lexer in
+        match peek lexer with
+        | Some '=' -> tokenize_1 (skip lexer) ((PERCENTEQUAL,loc) :: tokens)
+        | _ -> tokenize_1 lexer ((PERCENT, loc) :: tokens)
       else
         (Printf.printf "%s, line %d, column %d: Unexpected token %c\n"
            (Filename.basename lexer.lexer_filename)

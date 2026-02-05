@@ -36,15 +36,28 @@ let str_of_token = function
   | GREATER -> ">"
   | GREATEREQUAL -> ">="
   | EQUAL -> "="
+  | PLUSPLUS -> "++"
+  | PLUSEQUAL -> "+="
+  | MINUSEQUAL -> "-="
+  | ASTERISKEQUAL -> "*="
+  | SLASHEQUAL -> "/="
+  | PERCENTEQUAL -> "%="
+  | PIPEEQUAL -> "|="
+  | AMPEQUAL -> "&="
+  | CARATEQUAL -> "^="
+  | LESSLESSEQUAL -> "<<="
+  | GREATERGREATEREQUAL -> ">>="
 
 let ident_str = function
   | IDENTIFIER str -> str
-  | tok -> (Printf.printf "Tried to fetch identifier name of token %s\n" (str_of_token tok);
+  | tok -> (Printf.printf "Tried to fetch identifier name of token %s\n"
+              (str_of_token tok);
           exit 2)
 
 let constant_int_val = function
   | CONSTANT_INT i -> i
-  | tok -> (Printf.printf "Tried to fetch constant int value of token %s\n" (str_of_token tok);
+  | tok -> (Printf.printf "Tried to fetch constant int value of token %s\n"
+              (str_of_token tok);
           exit 2)
 
 let same_token t1 t2 =
@@ -122,13 +135,39 @@ let binop_precedence = function
   | PIPE -> 15
   | AMPAMP -> 10
   | PIPEPIPE -> 5
-  | EQUAL -> 1
+  | EQUAL -> 2
+  | PLUSEQUAL -> 2
+  | MINUSEQUAL -> 2
+  | ASTERISKEQUAL -> 2
+  | SLASHEQUAL -> 2
+  | PERCENTEQUAL -> 2
+  | LESSLESSEQUAL -> 2
+  | GREATERGREATEREQUAL -> 2
+  | AMPEQUAL -> 2
+  | CARATEQUAL -> 2
+  | PIPEEQUAL -> 2
   | _ -> 99
 
+let is_assignment_op = function
+  | EQUAL -> true
+  | PLUSEQUAL -> true
+  | MINUSEQUAL -> true
+  | ASTERISKEQUAL -> true
+  | SLASHEQUAL -> true
+  | PERCENTEQUAL -> true
+  | LESSLESSEQUAL -> true
+  | GREATERGREATEREQUAL -> true
+  | AMPEQUAL -> true
+  | CARATEQUAL -> true
+  | PIPEEQUAL -> true
+  | _ -> false
+    
 let is_unop = function
   | MINUS -> true
   | TILDE -> true
   | BANG -> true
+  | PLUSPLUS -> true
+  | MINUSMINUS -> true
   | _ -> false
     
 let parse_unop tokens =
@@ -137,6 +176,8 @@ let parse_unop tokens =
   | MINUS -> (Negate, next_tokens)
   | TILDE -> (Complement, next_tokens)
   | BANG -> (Not, next_tokens)
+  | PLUSPLUS -> (PreInc, next_tokens)
+  | MINUSMINUS -> (PreDec, next_tokens)
   | _ -> fail_at loc (Printf.sprintf "Unexpected unary operator %s" (str_of_token tok))
 
 let parse_binop tokens =
@@ -160,37 +201,52 @@ let parse_binop tokens =
   | BANGEQUAL -> (NotEqual, next_tokens)
   | AMPAMP -> (And, next_tokens)
   | PIPEPIPE -> (Or, next_tokens)
-  | _ -> fail_at loc (Printf.sprintf "Unexpected binary operator %s" (str_of_token tok))
+  | _ -> fail_at loc
+           (Printf.sprintf "Unexpected binary operator %s"
+              (str_of_token tok))
 
 let rec parse_factor tokens =
-  let ((tok,loc), next_tokens) = peek tokens in
-  if same_token tok (CONSTANT_INT 0L) then
-    (ConstantInt (loc, constant_int_val tok), next_tokens)
-  else if same_token tok (IDENTIFIER "") then
-    (Var (loc, ident_str tok), next_tokens)
-  else if is_unop tok then
-    let (unop, tokens) = parse_unop tokens in
-    let (inner_expr, tokens) = parse_factor tokens in
-    (Unary (loc, unop, inner_expr), tokens)
-  else if same_token tok LPAREN then
-    let (inner_expr, tokens) = parse_expr next_tokens 0 in
-    let tokens = expect RPAREN tokens in
-    (inner_expr, tokens)
-  else
-    fail_at loc (Printf.sprintf "Unexpected token %s" (str_of_token tok))
+  let (factor_exp, tokens) =
+    let ((tok,loc), next_tokens) = peek tokens in
+    if same_token tok (CONSTANT_INT 0L) then
+      (ConstantInt (loc, constant_int_val tok), next_tokens)
+    else if same_token tok (IDENTIFIER "") then
+      (Var (loc, ident_str tok), next_tokens)
+    else if is_unop tok then
+      let (unop, tokens) = parse_unop tokens in
+      let (inner_expr, tokens) = parse_factor tokens in
+      (Unary (loc, unop, inner_expr), tokens)
+    else if same_token tok LPAREN then
+      let (inner_expr, tokens) = parse_expr next_tokens 0 in
+      let tokens = expect RPAREN tokens in
+      (inner_expr, tokens)
+    else
+      fail_at loc (Printf.sprintf "Unexpected token %s" (str_of_token tok))
+  in
+  let rec check_for_postfix factor_exp tokens =
+    let ((next_tok, loc), post_next_tokens) = peek tokens in
+    match next_tok with
+    | PLUSPLUS ->
+       check_for_postfix (Unary (loc, PostInc, factor_exp)) post_next_tokens
+    | MINUSMINUS ->
+       check_for_postfix (Unary (loc, PostDec, factor_exp)) post_next_tokens
+    | _ -> (factor_exp, tokens)
+  in
+  check_for_postfix factor_exp tokens  
 
 and parse_expr tokens min_prec =
   let ((_,loc),_) = peek tokens in
   let (left, tokens) = parse_factor tokens in
   let rec parse_expr1 loc curr_left tokens min_prec =
     let ((tok,_), next_tokens) = peek tokens in
-    if same_token tok EQUAL && (binop_precedence tok) >= min_prec then
-      let (right, tokens) = parse_expr next_tokens 1 in
+    if (is_assignment_op tok) && (binop_precedence tok) >= min_prec then
+      let (right, tokens) = parse_expr next_tokens 2 in
       parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
     else if (is_binop tok) && (binop_precedence tok) >= min_prec then
       let (operator, tokens) = parse_binop tokens in
       let (right, tokens) = parse_expr tokens ((binop_precedence tok) + 1) in
-      parse_expr1 loc (Binary (loc, operator, curr_left, right)) tokens min_prec
+      parse_expr1 loc (Binary (loc, operator, curr_left, right))
+        tokens min_prec
     else
       (curr_left, tokens)
   in
@@ -216,9 +272,10 @@ let parse_declaration tokens =
      (Declaration (loc, var_name, Some init_exp), tokens)
   | ((SEMI,_), tokens) ->
      (Declaration (loc, var_name, None), tokens)
-  | ((other,loc), _) -> fail_at loc
-                         (Printf.sprintf "Invalid declaration, expected ';', but found %s"
-                          (str_of_token other))
+  | ((other,loc), _) ->
+     fail_at loc
+       (Printf.sprintf "Invalid declaration, expected ';', but found %s"
+          (str_of_token other))
        
 let parse_block_items tokens =
   let rec parse_block_items_1 tokens items =

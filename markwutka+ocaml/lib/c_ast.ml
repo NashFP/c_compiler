@@ -4,11 +4,15 @@
 
 module StringMap = Map.Make(String)
     
-type unary_op = Complement | Negate | Not
+type unary_op = Complement | Negate | Not | PreInc | PreDec | PostInc | PostDec 
 type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
                  ShiftRight | BitwiseAnd | BitwiseOr | BitwiseXor |
                  And | Or | Equal | NotEqual | LessThan | LessOrEqual |
-                 GreaterThan | GreaterOrEqual
+                 GreaterThan | GreaterOrEqual |
+                 AddEqual | SubtractEqual | MultiplyEqual | DivideEqual |
+                 ShiftLeftEqual | ShiftRightEqual |
+                 BitwiseAndEqual | BitwiseOrEqual | BitwiseXorEqual |
+                 AndEqual | OrEqual
 type loc_type = Location of string * int * int
 and exp_type = ConstantInt of loc_type * int64 |
                Unary of loc_type * unary_op * exp_type |
@@ -30,4 +34,19 @@ let exp_loc exp =
   | Binary (loc,_,_,_) -> loc
   | Var (loc,_) -> loc
   | Assignment (loc,_,_) -> loc
+
+let is_assignment = function
+  | AddEqual -> true
+  | SubtractEqual -> true
+  | MultiplyEqual -> true
+  | DivideEqual -> true
+  | ShiftLeftEqual -> true
+  | ShiftRightEqual ->true
+  | BitwiseAndEqual -> true
+  | BitwiseOrEqual -> true
+  | BitwiseXorEqual -> true
+  | AndEqual -> true
+  | OrEqual -> true
+  | _ -> false
+
 
