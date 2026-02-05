@@ -39,7 +39,10 @@ let resolve_variables ctx (Program func_def) =
     | Null -> (ctx, Null) in
   let resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
     let (ctx, unique_var) = make_unique_var ctx loc var_name in
-    (ctx, Declaration (loc, unique_var.unique_var_name, var_exp)) in
+    match var_exp with
+    | Some var_exp -> let (ctx, var_exp) = resolve_expr ctx var_exp in
+      (ctx, Declaration (loc, unique_var.unique_var_name, Some var_exp))
+    | None -> (ctx, Declaration (loc, unique_var.unique_var_name, None)) in
   let resolve_block_item (ctx, block_items) block_item =
     match block_item with
     | D decl -> let (ctx, decl) = resolve_declaration ctx decl in

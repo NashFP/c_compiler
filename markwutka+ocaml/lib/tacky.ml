@@ -111,11 +111,11 @@ let generate_tacky_stmt ctx instrs stmt =
   | _ -> failwith "tacky can't match stmt"
 
 let generate_tacky_declaration ctx instrs
-    (C_ast.Declaration (_, _, expr)) =
+    (C_ast.Declaration (_, var_name, expr)) =
   match expr with
   | None -> (ctx, instrs)
-  | Some expr -> let (ctx, instrs, _) = generate_tacky_expr ctx instrs expr in
-    (ctx, instrs)
+  | Some expr -> let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
+    (ctx, instrs @ [Copy (dst, Var var_name)])
                      
 let generate_block_item (ctx,instrs) item =
   match item with
@@ -125,7 +125,7 @@ let generate_block_item (ctx,instrs) item =
 let generate_tacky_function ctx (C_ast.FunctionDef (_, name, block_items)) =
   let ctx = context_in_func ctx name in
   let (ctx, instrs) = List.fold_left generate_block_item (ctx, []) block_items in
-  (ctx, Function (name, instrs))
+  (ctx, Function (name, instrs @ [Return (ConstantInt 0L)]))
 
 let generate_tacky_program ctx (C_ast.Program func_type) =
   let (ctx, func_def) = generate_tacky_function ctx func_type in
