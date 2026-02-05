@@ -10,10 +10,11 @@ type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
                  And | Or | Equal | NotEqual | LessThan | LessOrEqual |
                  GreaterThan | GreaterOrEqual
 type loc_type = Location of string * int * int
-  and exp_type = ConstantInt of loc_type * int64 | Unary of loc_type * unary_op * exp_type |
-                 Binary of loc_type * binary_op * exp_type * exp_type |
-                 Var of loc_type * string |
-                 Assignment of loc_type * exp_type * exp_type
+and exp_type = ConstantInt of loc_type * int64 |
+               Unary of loc_type * unary_op * exp_type |
+               Binary of loc_type * binary_op * exp_type * exp_type |
+               Var of loc_type * string |
+               Assignment of loc_type * exp_type * exp_type
   and statement_type = Return of loc_type * exp_type |
                        Expression of loc_type * exp_type |
                        Null

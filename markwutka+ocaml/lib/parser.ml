@@ -122,6 +122,7 @@ let binop_precedence = function
   | PIPE -> 15
   | AMPAMP -> 10
   | PIPEPIPE -> 5
+  | EQUAL -> 1
   | _ -> 99
 
 let is_unop = function
@@ -183,7 +184,7 @@ and parse_expr tokens min_prec =
   let (left, tokens) = parse_factor tokens in
   let rec parse_expr1 loc curr_left tokens min_prec =
     let ((tok,_), next_tokens) = peek tokens in
-    if same_token tok EQUAL then
+    if same_token tok EQUAL && (binop_precedence tok) >= min_prec then
       let (right, tokens) = parse_expr next_tokens 1 in
       parse_expr1 loc (Assignment (loc, curr_left, right)) tokens min_prec
     else if (is_binop tok) && (binop_precedence tok) >= min_prec then
