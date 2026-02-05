@@ -27,6 +27,8 @@ type instruction =
 type function_definition = Function of string * instruction list
 type program_type = Program of function_definition
 
+let (<::) lst item = item :: lst
+                     
 let convert_unop unop =
   match unop with
   | Tacky.Complement -> Not
@@ -61,60 +63,82 @@ let convert_operand operand =
 
 let generate_asm_instr instrs instr =
   match instr with
-  | Tacky.Return v -> Ret :: Mov (convert_operand v, Reg AX) :: instrs
+  | Tacky.Return v -> instrs <:: Mov (convert_operand v, Reg AX) <:: Ret
   | Tacky.Unary (Tacky.Not, src, dst) ->
-    SetCC (E, convert_operand dst) ::
-    Mov (Imm 0L, convert_operand dst) ::
-    Cmp (Imm 0L, convert_operand src) :: instrs
+    instrs
+    <:: Cmp (Imm 0L, convert_operand src)
+    <:: Mov (Imm 0L, convert_operand dst)
+    <:: SetCC (E, convert_operand dst)
   | Tacky.Unary (unop, src, dst) ->
-    Unary (convert_unop unop, convert_operand dst) ::
-    Mov (convert_operand src, convert_operand dst) :: instrs
+    instrs
+    <:: Mov (convert_operand src, convert_operand dst)
+    <:: Unary (convert_unop unop, convert_operand dst)
   | Tacky.Binary (Divide, src1, src2, dst) ->
-    Mov (Reg AX, convert_operand dst) ::
-    Idiv (convert_operand src2) ::
-    Cdq ::
-    Mov (convert_operand src1, Reg AX) :: instrs
+    instrs
+    <:: Mov (convert_operand src1, Reg AX)
+    <:: Cdq
+    <:: Idiv (convert_operand src2)
+    <:: Mov (Reg AX, convert_operand dst)
   | Tacky.Binary (Remainder, src1, src2, dst) ->
-    Mov (Reg DX, convert_operand dst) ::
-    Idiv (convert_operand src2) ::
-    Cdq ::
-    Mov (convert_operand src1, Reg AX) :: instrs
+    instrs
+    <:: Mov (convert_operand src1, Reg AX)
+    <:: Cdq
+    <:: Idiv (convert_operand src2)
+    <:: Mov (Reg DX, convert_operand dst)
   | Tacky.Binary (Tacky.Equal, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (E, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (E, dst)
   | Tacky.Binary (Tacky.NotEqual, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (NE, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (NE, dst)
   | Tacky.Binary (Tacky.LessThan, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (L, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (L, dst)
   | Tacky.Binary (Tacky.LessOrEqual, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (LE, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (LE, dst)
   | Tacky.Binary (Tacky.GreaterThan, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (G, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (G, dst)
   | Tacky.Binary (Tacky.GreaterOrEqual, src1, src2, dst) ->
     let dst = convert_operand dst in
-    SetCC (GE, dst) :: Mov (Imm 0L, dst) ::
-    Cmp (convert_operand src2, convert_operand src1) :: instrs
+    instrs
+    <:: Cmp (convert_operand src2, convert_operand src1)
+    <:: Mov (Imm 0L, dst)
+    <:: SetCC (GE, dst)
  | Tacky.Binary (binary_operator, src1, src2, dst) ->
-    Binary (convert_binop binary_operator, convert_operand src2,
-            convert_operand dst) ::
-    Mov (convert_operand src1, convert_operand dst) :: instrs
+   instrs
+   <:: Mov (convert_operand src1, convert_operand dst)
+   <::  Binary (convert_binop binary_operator, convert_operand src2,
+                convert_operand dst)
   | Tacky.Copy (src, dst) ->
-    Mov (convert_operand src, convert_operand dst) :: instrs
-  | Tacky.Label str -> Label str :: instrs
-  | Tacky.Jump str -> Jmp str :: instrs
+    instrs
+    <:: Mov (convert_operand src, convert_operand dst)
+  | Tacky.Label str -> instrs <:: Label str
+  | Tacky.Jump str -> instrs <:: Jmp str
   | Tacky.JumpIfZero (src, str) ->
-    JmpCC (E, str) :: Cmp (Imm 0L, convert_operand src) :: instrs
+    instrs
+    <:: Cmp (Imm 0L, convert_operand src)
+    <:: JmpCC (E, str)
   | Tacky.JumpIfNotZero (src, str) ->
-    JmpCC (NE, str) :: Cmp (Imm 0L, convert_operand src) :: instrs
+    instrs
+    <:: Cmp (Imm 0L, convert_operand src)
+    <:: JmpCC (NE, str)
   
 let generate_asm_func (Tacky.Function (name, instrs)) =
   let instrs_rev = List.fold_left generate_asm_instr [] instrs in
@@ -183,44 +207,58 @@ let replace_pseudo_program (Program func_def) =
 let fixup_instr instrs instr =
   match instr with
   | Mov (Stack src, Stack dst) ->
-    (Mov (Reg R10, Stack dst)) ::
-    (Mov (Stack src, Reg R10)) :: instrs
+    instrs
+    <:: Mov (Stack src, Reg R10)
+    <:: Mov (Reg R10, Stack dst)
   | Idiv src ->
-    Idiv (Reg R10) :: Mov (src, Reg R10) :: instrs
+    instrs
+    <:: Mov (src, Reg R10)
+    <:: Idiv (Reg R10)
   | Binary (Add, Stack src, Stack dst) ->
-    Binary (Add, Reg R10, Stack dst) ::
-    Mov (Stack src, Reg R10) :: instrs
+    instrs
+    <:: Mov (Stack src, Reg R10)
+    <:: Binary (Add, Reg R10, Stack dst)
   | Binary (Sub, Stack src, Stack dst) ->
-    Binary (Sub, Reg R10, Stack dst) ::
-    Mov (Stack src, Reg R10) :: instrs
+    instrs
+    <:: Mov (Stack src, Reg R10)
+    <:: Binary (Sub, Reg R10, Stack dst)
   | Binary (Mult, src, Stack dst) ->
-    Mov (Reg R11, Stack dst) ::
-    Binary (Mult, src, Reg R11) ::
-    Mov (Stack dst, Reg R11) :: instrs
+    instrs
+    <:: Mov (Stack dst, Reg R11)
+    <:: Binary (Mult, src, Reg R11)
+    <:: Mov (Reg R11, Stack dst)
   | Binary (BitwiseAnd, src, Stack dst) ->
-    Mov (Reg R11, Stack dst) ::
-    Binary (BitwiseAnd, src, Reg R11) ::
-    Mov (Stack dst, Reg R11) :: instrs
+    instrs
+    <:: Mov (Stack dst, Reg R11)
+    <:: Binary (BitwiseAnd, src, Reg R11)
+    <:: Mov (Reg R11, Stack dst)
   | Binary (BitwiseOr, src, Stack dst) ->
-    Mov (Reg R11, Stack dst) ::
-    Binary (BitwiseOr, src, Reg R11) ::
-    Mov (Stack dst, Reg R11) :: instrs
+    instrs
+    <:: Mov (Stack dst, Reg R11)
+    <:: Binary (BitwiseOr, src, Reg R11)
+    <:: Mov (Reg R11, Stack dst)
   | Binary (BitwiseXor, src, Stack dst) ->
-    Mov (Reg R11, Stack dst) ::
-    Binary (BitwiseXor, src, Reg R11) ::
-    Mov (Stack dst, Reg R11) :: instrs
+    instrs
+    <:: Mov (Stack dst, Reg R11)
+    <:: Binary (BitwiseXor, src, Reg R11)
+    <:: Mov (Reg R11, Stack dst)
   | Binary (ShiftLeft, src, dst) ->
-    Binary (ShiftLeft, Reg CL, dst) ::
-    Mov (src, Reg CX) :: instrs
+    instrs
+    <:: Mov (src, Reg CX)
+    <:: Binary (ShiftLeft, Reg CL, dst)
   | Binary (ShiftRight, src, dst) ->
-    Binary (ShiftRight, Reg CL, dst) ::
-    Mov (src, Reg CX) :: instrs
+    instrs
+    <:: Mov (src, Reg CX)
+    <:: Binary (ShiftRight, Reg CL, dst)
   | Cmp (Stack src1, Stack src2) ->
-    Cmp (Reg R10, Stack src2) ::
-    Mov (Stack src1, Reg R10) :: instrs
+    instrs
+    <:: Mov (Stack src1, Reg R10)
+    <:: Cmp (Reg R10, Stack src2)
   | Cmp (src, Imm n) ->
-    Cmp (src, Reg R11) :: Mov (Imm n, Reg R11) :: instrs
-  | rest -> rest :: instrs
+    instrs
+    <:: Mov (Imm n, Reg R11)
+    <:: Cmp (src, Reg R11)
+  | rest -> instrs <:: rest
 
 let fixup_func (Function (name, instrs)) stack_size =
   let new_instrs = List.fold_left fixup_instr [] instrs in
@@ -264,33 +302,34 @@ let emit_cond_code = function
   | G -> "g"
   | GE -> "ge"
            
-let emit_instr instrs instr =
+let emit_instr instr =
   match instr with
   | Mov(src, dst) -> (Printf.sprintf "    movl   %s, %s\n"
-    (emit_operand src) (emit_operand dst)) :: instrs
+    (emit_operand src) (emit_operand dst))
   | Unary (op, operand) ->
     (Printf.sprintf "    %s    %s\n"
-       (emit_unop op) (emit_operand operand)) :: instrs
+       (emit_unop op) (emit_operand operand))
   | Binary (op, src, dst) ->
     (Printf.sprintf "    %s    %s, %s\n"
-       (emit_binop op) (emit_operand src) (emit_operand dst)) :: instrs
+       (emit_binop op) (emit_operand src) (emit_operand dst))
   | Idiv operand ->
-    (Printf.sprintf "    idivl    %s\n" (emit_operand operand)) :: instrs
-  | Cdq -> "    cdq\n" :: instrs
-  | Ret -> "    ret\n" :: "    popq    %rbp\n" ::
-    "    movq    %rbp, %rsp\n" :: instrs
+    (Printf.sprintf "    idivl    %s\n" (emit_operand operand))
+  | Cdq -> "    cdq\n"
+  | Ret -> "    movq    %rbp, %rsp\n" ^
+           "    popq    %rbp\n"^
+           "    ret\n"
   | AllocateStack v ->
-    (Printf.sprintf "    subq    $%d, %%rsp\n" v) :: instrs
+    (Printf.sprintf "    subq    $%d, %%rsp\n" v)
   | Cmp (src1, src2) ->
     (Printf.sprintf "    cmpl    %s, %s\n" (emit_operand src1)
-       (emit_operand src2)) :: instrs
-  | Jmp str -> (Printf.sprintf "    jmp    .L%s\n" str) :: instrs
+       (emit_operand src2))
+  | Jmp str -> (Printf.sprintf "    jmp    .L%s\n" str)
   | JmpCC (cc, str) -> (Printf.sprintf "    j%s    .L%s\n"
-                          (emit_cond_code cc) str) :: instrs
+                          (emit_cond_code cc) str)
   | SetCC (cc, src) -> (Printf.sprintf "    set%s    %s\n"
                           (emit_cond_code cc)
-                       (emit_operand src)) :: instrs
-  | Label str -> (Printf.sprintf ".L%s:\n" str) :: instrs
+                       (emit_operand src))
+  | Label str -> (Printf.sprintf ".L%s:\n" str)
                        
     
 let emit_func (Function (name, instrs)) =
@@ -298,7 +337,7 @@ let emit_func (Function (name, instrs)) =
   (Printf.sprintf "%s:\n" name)::
    "    pushq    %rbp\n"::
    "    movq     %rsp, %rbp\n"::
-  (List.rev (List.fold_left emit_instr [] instrs))
+  List.map emit_instr instrs
 
 let emit_program (Program func_def) =
   let func_lines = emit_func func_def in

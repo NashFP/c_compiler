@@ -18,6 +18,8 @@ type function_definition = Function of string * instruction list
 type program_type = Program of function_definition
 type function_context = { func_name: string; func_next_temp_num: int }
 
+let (<::) lst item = item :: lst
+                     
 let convert_unop unary_op =
   match unary_op with
   | C_ast.Complement -> Complement
@@ -54,37 +56,37 @@ let rec generate_tacky_expr ctx instrs expr =
     let (ctx, dst_name) = make_func_temporary ctx in
     let dst = Var dst_name in
     let tacky_op = convert_unop unary_op in
-    let instrs = instrs @ [Unary (tacky_op, src, dst)] in
+    let instrs = instrs <:: Unary (tacky_op, src, dst) in
     (ctx, instrs, dst)
   | C_ast.Binary (_, And, src1, src2) ->
     let (ctx, instrs, v1) = generate_tacky_expr ctx instrs src1 in
     let (ctx, false_label_name) = make_func_label ctx "false" in
-    let instrs = instrs @ [JumpIfZero (v1, false_label_name)] in
+    let instrs = instrs <:: JumpIfZero (v1, false_label_name) in
     let (ctx, instrs, v2) = generate_tacky_expr ctx instrs src2 in
-    let instrs = instrs @ [JumpIfZero (v2, false_label_name)] in
+    let instrs = instrs <:: JumpIfZero (v2, false_label_name) in
     let (ctx, dst_name) = make_func_temporary ctx in
     let dst = Var dst_name in
-    let instrs = instrs @ [Copy (ConstantInt 1L, dst)] in
+    let instrs = instrs <:: Copy (ConstantInt 1L, dst) in
     let (ctx, end_label_name) = make_func_label ctx "end" in
-    let instrs = instrs @ [Jump end_label_name;
-                           Label false_label_name;
-                           Copy (ConstantInt 0L, dst);
-                           Label end_label_name] in
+    let instrs = instrs <:: Jump end_label_name
+                           <:: Label false_label_name
+                           <:: Copy (ConstantInt 0L, dst)
+                           <:: Label end_label_name in
     (ctx, instrs, dst)
   | C_ast.Binary (_, Or, src1, src2) ->
     let (ctx, instrs, v1) = generate_tacky_expr ctx instrs src1 in
     let (ctx, true_label_name) = make_func_label ctx "true" in
-    let instrs = instrs @ [JumpIfNotZero (v1, true_label_name)] in
+    let instrs = instrs <:: JumpIfNotZero (v1, true_label_name) in
     let (ctx, instrs, v2) = generate_tacky_expr ctx instrs src2 in
-    let instrs = instrs @ [JumpIfNotZero (v2, true_label_name)] in
+    let instrs = instrs <:: JumpIfNotZero (v2, true_label_name) in
     let (ctx, dst_name) = make_func_temporary ctx in
     let dst = Var dst_name in
-    let instrs = instrs @ [Copy (ConstantInt 0L, dst)] in
+    let instrs = instrs <:: Copy (ConstantInt 0L, dst) in
     let (ctx, end_label_name) = make_func_label ctx "end" in
-    let instrs = instrs @ [Jump end_label_name;
-                           Label true_label_name;
-                           Copy (ConstantInt 1L, dst);
-                           Label end_label_name] in
+    let instrs = instrs <:: Jump end_label_name
+                           <:: Label true_label_name
+                           <:: Copy (ConstantInt 1L, dst)
+                           <:: Label end_label_name in
     (ctx, instrs, dst)        
   | C_ast.Binary (_, binary_op, src1, src2) ->
     let (ctx, instrs, v1) = generate_tacky_expr ctx instrs src1 in
@@ -92,19 +94,19 @@ let rec generate_tacky_expr ctx instrs expr =
     let (ctx, dst_name) = make_func_temporary ctx in    
     let dst = Var dst_name in
     let tacky_op = convert_binop binary_op in
-    let instrs = instrs @ [Binary (tacky_op, v1, v2, dst)] in
+    let instrs = instrs <:: Binary (tacky_op, v1, v2, dst) in
     (ctx, instrs, dst)
   | C_ast.Var (_, var_name) -> (ctx, instrs, Var var_name)
   | C_ast.Assignment (_, C_ast.Var (_, var_name), expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
-    (ctx, instrs @ [Copy (dst, Var var_name)], Var var_name)
+    (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
   | _ -> failwith "tacky can't match expr"
 
 let generate_tacky_stmt ctx instrs stmt =
   match stmt with
   | (C_ast.Return (_, expr)) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
-    (ctx, instrs @ [Return dst])
+    (ctx, instrs <:: Return dst)
   | (C_ast.Expression (_, expr)) ->
     let (ctx, instrs, _dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs)
@@ -115,7 +117,7 @@ let generate_tacky_declaration ctx instrs
   match expr with
   | None -> (ctx, instrs)
   | Some expr -> let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
-    (ctx, instrs @ [Copy (dst, Var var_name)])
+    (ctx, instrs <:: Copy (dst, Var var_name))
                      
 let generate_block_item (ctx,instrs) item =
   match item with
@@ -125,7 +127,7 @@ let generate_block_item (ctx,instrs) item =
 let generate_tacky_function ctx (C_ast.FunctionDef (_, name, block_items)) =
   let ctx = context_in_func ctx name in
   let (ctx, instrs) = List.fold_left generate_block_item (ctx, []) block_items in
-  (ctx, Function (name, instrs @ [Return (ConstantInt 0L)]))
+  (ctx, Function (name, List.rev (instrs <:: Return (ConstantInt 0L))))
 
 let generate_tacky_program ctx (C_ast.Program func_type) =
   let (ctx, func_def) = generate_tacky_function ctx func_type in
