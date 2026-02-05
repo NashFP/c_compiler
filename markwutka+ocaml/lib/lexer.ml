@@ -6,6 +6,7 @@ type token_type =
   | RETURN
   | IF
   | ELSE
+  | GOTO
   | LPAREN
   | RPAREN
   | LBRACE
@@ -157,6 +158,7 @@ let make_identifier_token ident =
   | "return" -> RETURN
   | "if" -> IF
   | "else" -> ELSE
+  | "goto" -> GOTO
   | _ -> IDENTIFIER ident
 
 let parse_identifier lexer =

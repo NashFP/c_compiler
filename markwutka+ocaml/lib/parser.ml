@@ -10,6 +10,7 @@ let str_of_token = function
   | RETURN -> "return"
   | IF -> "if"
   | ELSE -> "else"
+  | GOTO -> "goto"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -304,12 +305,19 @@ and parse_expr tokens min_prec =
   parse_expr1 loc left tokens min_prec
   
 let rec parse_statement tokens =
-  match peek tokens with
-  | ((RETURN,loc),tokens) ->
+  match tokens with
+  | [] -> failwith "Expected statement, found end of file"
+  | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
+     (Label (loc, str), tokens)
+  | ((GOTO,loc) :: tokens) ->
+     let (tok,_, tokens) = expect_and_get (IDENTIFIER "") tokens in
+     let tokens = expect SEMI tokens in
+     (Goto (loc, ident_str tok), tokens)
+  | ((RETURN,loc) :: tokens) ->
      let (expr, tokens) = parse_expr tokens 0 in
      let tokens = expect SEMI tokens in
      (Return (loc, expr), tokens)
-  | ((IF,loc),tokens) ->
+  | ((IF,loc) :: tokens) ->
      let tokens = expect LPAREN tokens in
      let (test_expr, tokens) = parse_expr tokens 0 in
      let tokens = expect RPAREN tokens in
@@ -319,8 +327,9 @@ let rec parse_statement tokens =
          let (else_stmt, tokens) = parse_statement tokens in
          (If (loc, test_expr, then_stmt, Some else_stmt), tokens)
       | _ -> (If (loc, test_expr, then_stmt, None), tokens))
-  | ((SEMI,_loc),tokens) -> (Null, tokens)
-  | ((_,loc),_) -> let (expr, tokens) = parse_expr tokens 0 in
+  | ((SEMI,_loc) :: tokens) -> (Null, tokens)
+
+  | ((_,loc) :: _tokens) -> let (expr, tokens) = parse_expr tokens 0 in
                    let tokens = expect SEMI tokens in
          (Expression (loc, expr), tokens)
 
@@ -340,18 +349,24 @@ let parse_declaration tokens =
           (str_of_token other))
        
 let parse_block_items tokens =
-  let rec parse_block_items_1 tokens items =
+  let rec parse_block_items_1 got_label tokens items =
     match peek tokens with
-    | ((SEMI,_), tokens) -> parse_block_items_1 tokens items
+    | ((SEMI,_), tokens) -> parse_block_items_1 got_label tokens items
     | ((RBRACE,_), _) -> (List.rev items, tokens)
-    | ((INT,_), _) ->
+    | ((INT,loc), _) ->
        let (decl, tokens) = parse_declaration tokens in
-       parse_block_items_1 tokens (D decl :: items)
+       if got_label then
+         fail_at loc "Declaration appears after label"
+       else
+         parse_block_items_1 got_label tokens (D decl :: items)
     | _ ->
        let (stmt, tokens) = parse_statement tokens in
-       parse_block_items_1 tokens (S stmt :: items)
+       match stmt with
+       | Label (_,_) ->
+          parse_block_items_1 true tokens (S stmt :: items)
+       | _ -> parse_block_items_1 got_label tokens (S stmt :: items)
   in
-  parse_block_items_1 tokens []
+  parse_block_items_1 false tokens []
 
 let parse_function tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
@@ -360,9 +375,17 @@ let parse_function tokens =
   let tokens = expect VOID tokens in
   let tokens = expect RPAREN tokens in
   let tokens = expect LBRACE tokens in
-  let (stmt, tokens) = parse_block_items tokens in
+  let (stmts, tokens) = parse_block_items tokens in
   let tokens = expect RBRACE tokens in
-  (FunctionDef (loc, ident_str ident, stmt), tokens)
+  if not (List.is_empty stmts) then
+    match List.hd (List.rev stmts) with
+    | S (Label (loc, str)) ->
+       fail_at loc
+         (Printf.sprintf "Label %s appears without a statement after it"
+            str)
+    | _ -> (FunctionDef (loc, ident_str ident, stmts), tokens)
+  else
+    (FunctionDef (loc, ident_str ident, stmts), tokens)
 
 let parse_program tokens =
   let (func, tokens) = parse_function tokens in

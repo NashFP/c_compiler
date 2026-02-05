@@ -23,6 +23,8 @@ and exp_type = ConstantInt of loc_type * int64 |
                        Expression of loc_type * exp_type |
                        If of loc_type * exp_type * statement_type *
                                statement_type option |
+                       Label of loc_type * string |
+                       Goto of loc_type * string |
                        Null
   and function_def_type = FunctionDef of loc_type * string * block_item list
   and program_type = Program of function_def_type

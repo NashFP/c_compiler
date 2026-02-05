@@ -173,6 +173,10 @@ let rec generate_tacky_stmt ctx instrs stmt =
      let instrs = instrs <:: JumpIfZero (dst, end_label_name) in
      let (ctx, instrs) = generate_tacky_stmt ctx instrs true_stmt in
      (ctx, instrs <:: Label end_label_name)
+  | C_ast.Label (_, label_str) ->
+     (ctx, instrs <:: Label label_str)
+  | C_ast.Goto (_, label_str) ->
+     (ctx, instrs <:: Jump label_str)
   | C_ast.Null -> (ctx, instrs)
 
 let generate_tacky_declaration ctx instrs

@@ -1,6 +1,8 @@
 open C_ast
 open Context
 
+module StringSet = Set.Make(String)
+
 let (<::) lst item = item :: lst
 
 let is_lvalue = function
@@ -74,6 +76,8 @@ let resolve_variables ctx (Program func_def) =
            (ctx, If (loc, expr, true_stmt, Some false_stmt))
         | None ->
            (ctx, If (loc, expr, true_stmt, None)))
+    | Label (loc,str) -> (ctx, Label (loc,str))
+    | Goto (loc,str) -> (ctx, Goto (loc,str))
     | Null -> (ctx, Null) in
   let resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
     let (ctx, unique_var) = make_unique_var ctx loc var_name in
@@ -94,3 +98,44 @@ let resolve_variables ctx (Program func_def) =
   in
   let (ctx, func_def) = resolve_function ctx func_def in
   (ctx, Program func_def)
+
+let verify_label_and_goto (Program func_def) =
+  let rec find_labels labels block_item =
+    match block_item with
+    | D _ -> labels
+    | S (Label (loc, str)) ->
+       if StringMap.mem str labels then
+         fail_at loc (Printf.sprintf "Duplicate label %s in function" str)
+       else
+         StringMap.add str loc labels
+    | S (If (_, _, true_stmt, Some false_stmt)) ->
+       let labels = find_labels labels (S true_stmt) in
+       find_labels labels (S false_stmt)
+    | S (If (_, _, true_stmt, None)) ->
+       find_labels labels (S true_stmt)
+    | _ -> labels in
+  let verify_goto labels used_labels block_item =
+    match block_item with
+    | S (Goto (loc, str)) ->
+         if not (StringMap.mem str labels) then
+           fail_at loc (Printf.sprintf "No matching label found for goto %s"
+                          str)
+         else
+           StringMap.remove str used_labels
+    | _ -> used_labels in
+  let verify_function (FunctionDef (loc, func_name, block_items)) =
+    let label_set = List.fold_left find_labels StringMap.empty block_items in
+    let used_labels = List.fold_left (verify_goto label_set)
+                        label_set block_items in
+    if StringMap.cardinal used_labels > 0 then
+      let warn_unused (label,loc) =
+        warn_at loc (Printf.sprintf "Unused label %s" label) in
+      (List.iter warn_unused (StringMap.to_list used_labels);
+       Program (FunctionDef (loc, func_name, block_items)))
+    else
+      Program (FunctionDef (loc, func_name, block_items))
+  in
+  verify_function func_def
+      
+      
+    

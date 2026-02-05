@@ -25,7 +25,9 @@ let () =
       let prog = Parser.parse_program tokens in
       if mode != ModeParse then
         let ctx = Context.make_context in
-        let (ctx, resolved_prog) = Semantic.resolve_variables ctx prog in
+        let verified_prog = Semantic.verify_label_and_goto prog in
+        let (ctx, resolved_prog) =
+          Semantic.resolve_variables ctx verified_prog in
         if mode != ModeValidate then
           let (_, tacky_prog) = Tacky.generate_tacky_program ctx resolved_prog in
           if mode != ModeTacky then

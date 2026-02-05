@@ -17,6 +17,9 @@ let fail_at (C_ast.Location (filename, line, column)) message =
   Printf.printf "%s, line %d, column %d: %s\n" filename line column message;
   exit 1
 
+let warn_at (C_ast.Location (filename, line, column)) message =
+  Printf.printf "Warning: %s, line %d, column %d: %s\n" filename line column message
+
 let make_func_temporary ctx =
   ( { ctx with func_next_temp_num = ctx.func_next_temp_num + 1 },
     Printf.sprintf "%s.%d" ctx.func_name ctx.func_next_temp_num )
