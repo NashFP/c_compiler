@@ -283,7 +283,7 @@ and parse_expr tokens min_prec =
       let (right, tokens) = parse_expr next_tokens 2 in
       if is_compound_op tok then
         parse_expr1 loc
-          (Assignment (loc, curr_left,
+          (AssignmentExpr (loc, curr_left,
                        Binary (loc, compound_calc_op tok, curr_left, right)))
           tokens min_prec
       else
