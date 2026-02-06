@@ -40,6 +40,16 @@ let rec resolve_expr ctx expr =
   | Assignment (loc, _, _) ->
      Context.fail_at loc
        (Printf.sprintf "Invalid lvalue in assignment")
+  | AssignmentExpr (loc, (Var (vloc, var_name)), expr) ->
+     (match lookup_var ctx var_name with
+      | None -> Context.fail_at loc
+                  (Printf.sprintf "Undeclared variable: %s" var_name)
+      | Some v ->
+         let (ctx, expr) = resolve_expr ctx expr in
+         (ctx, AssignmentExpr (loc, Var (vloc, v.unique_var_name), expr)))
+  | AssignmentExpr (loc, _, _) ->
+     Context.fail_at loc
+       (Printf.sprintf "Invalid lvalue in assignment")
   | Binary (loc, op, exp1, exp2) ->
      let (ctx, exp1) = resolve_expr ctx exp1 in
      let (ctx, exp2) = resolve_expr ctx exp2 in
@@ -57,6 +67,13 @@ let rec resolve_expr ctx expr =
      let (ctx, true_expr) = resolve_expr ctx true_expr in
      let (ctx, false_expr) = resolve_expr ctx false_expr in
      (ctx, Condition (loc, test_expr, true_expr, false_expr))
+and resolve_optional_expr ctx maybe_expr =
+  match maybe_expr with
+  | None -> (ctx, None)
+  | Some expr ->
+     let (ctx, expr) = resolve_expr ctx expr in
+     (ctx, Some expr)
+                                              
 and resolve_statement ctx stmt =
   match stmt with
   | Expression (loc, expr) ->
@@ -83,13 +100,27 @@ and resolve_statement ctx stmt =
      let (ctx, stmt) = resolve_statement ctx stmt in
      (ctx, Label (loc,str,stmt))
   | While (loc,test_expr,stmt,opt_label) ->
+     let (ctx, test_expr) = resolve_expr ctx test_expr in
      let (ctx, stmt) = resolve_statement ctx stmt in
      (ctx, While (loc,test_expr,stmt,opt_label))
   | DoWhile (loc,test_expr,stmt,opt_label) ->
+     let (ctx, test_expr) = resolve_expr ctx test_expr in
      let (ctx, stmt) = resolve_statement ctx stmt in
      (ctx, DoWhile (loc,test_expr,stmt,opt_label))
   | For (loc,init,test_expr,post_expr,stmt,opt_label) ->
+     let ctx = enter_scope ctx in
+     let (ctx, init) =
+       match init with
+       | InitDecl decl ->
+          let (ctx, decl) = resolve_declaration ctx decl in
+          (ctx, InitDecl decl)
+       | InitExpr expr ->
+          let (ctx, expr) = resolve_optional_expr ctx expr in
+          (ctx, InitExpr expr) in
+     let (ctx, test_expr) = resolve_optional_expr ctx test_expr in
+     let (ctx, post_expr) = resolve_optional_expr ctx post_expr in
      let (ctx, stmt) = resolve_statement ctx stmt in
+     let ctx = leave_scope ctx in
      (ctx, For (loc,init,test_expr,post_expr,stmt,opt_label))
   | Break _ -> (ctx, stmt)
   | Continue _ -> (ctx, stmt)
@@ -156,8 +187,80 @@ let verify_label_and_goto (Program func_def) =
       let warn_unused (label,loc) =
         warn_at loc (Printf.sprintf "Unused label %s" label) in
       (List.iter warn_unused (StringMap.to_list used_labels);
-       Program (FunctionDef (loc, func_name, block_items)))
+       FunctionDef (loc, func_name, block_items))
     else
-      Program (FunctionDef (loc, func_name, block_items))
+      FunctionDef (loc, func_name, block_items)
   in
-  verify_function func_def    
+  Program (verify_function func_def)
+
+let label_loops ctx (Program func_def) =
+  let rec label_stmt ctx stmt =
+    match stmt with
+    | Return _ -> (ctx, stmt)
+    | Expression _ -> (ctx, stmt)
+    | If (loc, test_expr, true_stmt, maybe_false_stmt) ->
+       let (ctx, true_stmt) = label_stmt ctx true_stmt in
+       let (ctx, maybe_false_stmt) =
+         label_optional_stmt ctx maybe_false_stmt in
+       (ctx, If (loc, test_expr, true_stmt, maybe_false_stmt))
+    | Label (loc, label, stmt) ->
+        let (ctx, stmt) = label_stmt ctx stmt in
+        (ctx, Label (loc, label, stmt))
+    | Goto _ -> (ctx, stmt)
+    | Compound (loc, Block block_items) ->
+       let ctx = enter_scope ctx in
+       let (ctx, block_items) = label_block_items ctx block_items in
+       let ctx = leave_scope ctx in
+       (ctx, Compound (loc, Block block_items))
+    | Break (loc, _) ->
+       (match curr_block_id ctx with
+        | None -> fail_at loc "break statement outside of a loop or switch"
+        | Some (block_id, _) ->
+           (ctx, Break (loc, Some block_id)))
+    | Continue (loc, _) ->
+       (match curr_loop_id ctx with
+        | None -> fail_at loc "continue statement outside of a loop"
+        | Some (block_id, _) ->
+           (ctx, Continue (loc, Some block_id)))
+    | While (loc, test_expr, stmt, _) ->
+       let (ctx, block_name) = enter_block ctx BlockWhile in
+       let (ctx, stmt) = label_stmt ctx stmt in
+       let ctx = leave_block ctx in
+       (ctx, While (loc, test_expr, stmt, Some block_name))
+    | DoWhile (loc, test_expr, stmt, _) ->
+       let (ctx, block_name) = enter_block ctx BlockDoWhile in
+       let (ctx, stmt) = label_stmt ctx stmt in
+       let ctx = leave_block ctx in
+       (ctx, DoWhile (loc, test_expr, stmt, Some block_name))
+    | For (loc, init, test_expr, post_expr, stmt, _) ->
+       let (ctx, block_name) = enter_block ctx BlockFor in
+       let (ctx, stmt) = label_stmt ctx stmt in
+       let ctx = leave_block ctx in
+       (ctx, For (loc, init, test_expr, post_expr, stmt, Some block_name))
+    | Null -> (ctx, stmt)
+       
+  and label_optional_stmt ctx optional_stmt =
+    match optional_stmt with
+    | None -> (ctx, None)
+    | Some stmt ->
+       let (ctx, stmt) = label_stmt ctx stmt in
+       (ctx, Some stmt)
+  and label_block_item (ctx, items) block_item =
+    match block_item with
+    | D _ -> (ctx, block_item::items)
+    | S stmt ->
+       let (ctx, stmt) = label_stmt ctx stmt in
+       (ctx, (S stmt) :: items)
+  and label_block_items ctx block_items =
+    let (ctx, block_items) =
+      List.fold_left label_block_item (ctx,[]) block_items in
+    (ctx, List.rev block_items) in
+  let label_function_loops ctx (FunctionDef (loc, func_name, block_items)) =
+    let ctx = enter_func ctx func_name in
+    let (ctx, block_items) = label_block_items ctx block_items in
+    let ctx = leave_func ctx in
+    (ctx, FunctionDef (loc, func_name, block_items))
+  in
+  let (_, func_def) = (label_function_loops ctx  func_def) in
+  (ctx, Program func_def)
+

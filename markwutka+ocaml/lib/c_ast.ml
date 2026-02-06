@@ -18,6 +18,7 @@ and exp_type = ConstantInt of loc_type * int64 |
                Binary of loc_type * binary_op * exp_type * exp_type |
                Var of loc_type * string |
                Assignment of loc_type * exp_type * exp_type |
+               AssignmentExpr of loc_type * exp_type * exp_type |
                Condition of loc_type * exp_type * exp_type * exp_type
 and statement_type = Return of loc_type * exp_type |
                      Expression of loc_type * exp_type |
@@ -42,15 +43,5 @@ and declaration_type = Declaration of loc_type * string * exp_type option
 and for_init_type = InitDecl of declaration_type | InitExpr of exp_type option
 and block_item = S of statement_type | D of declaration_type
 and block_type = Block of block_item list
-
-let exp_loc exp =
-  match exp with
-  | ConstantInt (loc,_) -> loc
-  | Unary (loc,_,_) -> loc
-  | Binary (loc,_,_,_) -> loc
-  | Var (loc,_) -> loc
-  | Assignment (loc,_,_) -> loc
-  | Condition (loc,_,_,_) -> loc
-
 
 

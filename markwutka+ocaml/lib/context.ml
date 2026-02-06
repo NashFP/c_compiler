@@ -1,16 +1,20 @@
 module StringMap = Map.Make(String)
 
 type var_type = { orig_var_name: string; unique_var_name: string }
-                
+
+type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch
 type context_type = { global_counter: int; func_name: string;
                       func_next_temp_num: int;
                       func_vars_stack: (var_type StringMap.t) list;
-                    func_labels: int StringMap.t}
+                      func_labels: int StringMap.t;
+                      block_stack: (string * block_type) list;
+                    }
 
 let make_context = { global_counter=0; func_name="";
                      func_next_temp_num=0;
                      func_vars_stack=[StringMap.empty];
                      func_labels=StringMap.empty;
+                     block_stack=[];
                    }
 
 let fail_at (C_ast.Location (filename, line, column)) message =
@@ -62,6 +66,18 @@ let make_unique_var ctx loc var_name =
                func_vars_stack=func_vars :: List.tl ctx.func_vars_stack },
      unique_var)
 
+let curr_block_id ctx =
+  match ctx.block_stack with
+  | [] -> None
+  | l :: _ -> Some l
+
+let curr_loop_id ctx =
+  let is_loop (_,block_type) =
+    match block_type with
+    | BlockSwitch -> false
+    | _ -> true in
+  List.find_opt is_loop ctx.block_stack
+
 let enter_scope ctx =
   { ctx with func_vars_stack=StringMap.empty :: ctx.func_vars_stack }
 
@@ -73,3 +89,19 @@ let enter_func ctx func_name =
   { (enter_scope ctx) with func_name=func_name }
 
 let leave_func ctx = leave_scope ctx
+
+let enter_block ctx block_type =
+  let block_prefix =
+    match block_type with
+    | BlockWhile -> "while"
+    | BlockDoWhile -> "do_while"
+    | BlockFor -> "for"
+    | BlockSwitch -> "switch" in
+  let block_name = Printf.sprintf "%s_%s.%d" ctx.func_name
+                                 block_prefix ctx.global_counter in
+  ({ ctx with block_stack=(block_name,block_type) :: ctx.block_stack;
+              global_counter=ctx.global_counter+1 },
+   block_name)
+
+let leave_block ctx =
+  { ctx with block_stack=List.tl ctx.block_stack }

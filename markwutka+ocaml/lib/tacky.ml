@@ -126,6 +126,9 @@ let rec generate_tacky_expr ctx instrs expr =
   | C_ast.Assignment (_, C_ast.Var (_, var_name), expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
+  | C_ast.AssignmentExpr (_, C_ast.Var (_, var_name), expr) ->
+    let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
+    (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
   | C_ast.Condition (_, test_expr, true_expr, false_expr) ->
      let (ctx, false_label_name) = make_func_label ctx "false" in
      let (ctx, end_label_name) = make_func_label ctx "end" in
