@@ -7,6 +7,11 @@ type token_type =
   | IF
   | ELSE
   | GOTO
+  | DO
+  | WHILE
+  | FOR
+  | BREAK
+  | CONTINUE
   | LPAREN
   | RPAREN
   | LBRACE
@@ -159,6 +164,11 @@ let make_identifier_token ident =
   | "if" -> IF
   | "else" -> ELSE
   | "goto" -> GOTO
+  | "do" -> DO
+  | "while" -> WHILE
+  | "for" -> FOR
+  | "break" -> BREAK
+  | "continue" -> CONTINUE
   | _ -> IDENTIFIER ident
 
 let parse_identifier lexer =

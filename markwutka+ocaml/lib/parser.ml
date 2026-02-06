@@ -11,6 +11,11 @@ let str_of_token = function
   | IF -> "if"
   | ELSE -> "else"
   | GOTO -> "goto"
+  | DO -> "do"
+  | WHILE -> "while"
+  | FOR -> "for"
+  | BREAK -> "break"
+  | CONTINUE -> "continue"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -303,7 +308,17 @@ and parse_expr tokens min_prec =
       (curr_left, tokens)
   in
   parse_expr1 loc left tokens min_prec
-  
+
+let parse_optional_expr tokens terminator =
+  let ((tok,_),_) = peek tokens in
+  if same_token tok terminator then
+    let tokens = expect terminator tokens in
+    (None, tokens)
+  else
+    let (expr, tokens) = parse_expr tokens 0 in
+    let tokens = expect terminator tokens in
+    (Some expr, tokens)
+
 let rec parse_statement tokens =
   match tokens with
   | [] -> failwith "Expected statement, found end of file"
@@ -329,6 +344,33 @@ let rec parse_statement tokens =
          let (else_stmt, tokens) = parse_statement tokens in
          (If (loc, test_expr, then_stmt, Some else_stmt), tokens)
       | _ -> (If (loc, test_expr, then_stmt, None), tokens))
+  | ((WHILE,loc) :: tokens) ->
+     let tokens = expect LPAREN tokens in
+     let (test_expr, tokens) = parse_expr tokens 0 in
+     let tokens = expect RPAREN tokens in
+     let (stmt, tokens) = parse_statement tokens in
+     (While (loc,test_expr,stmt,None), tokens)
+  | ((DO,loc) :: tokens) ->
+     let (stmt, tokens) = parse_statement tokens in
+     let tokens = expect WHILE tokens in
+     let tokens = expect LPAREN tokens in
+     let (test_expr, tokens) = parse_expr tokens 0 in
+     let tokens = expect RPAREN tokens in
+     let tokens = expect SEMI tokens in
+     (DoWhile (loc,test_expr,stmt,None), tokens)
+  | ((FOR,loc) :: tokens) ->
+     let tokens = expect LPAREN tokens in
+     let (init,tokens) = parse_for_init tokens in
+     let (test_expr, tokens) = parse_optional_expr tokens SEMI in
+     let (post_expr, tokens) = parse_optional_expr tokens RPAREN in
+     let (stmt, tokens) = parse_statement tokens in
+     (For (loc,init,test_expr,post_expr,stmt,None), tokens)
+  | ((BREAK,loc) :: tokens) ->
+     let tokens = expect SEMI tokens in
+     (Break (loc,None), tokens)
+  | ((CONTINUE,loc) :: tokens) ->
+     let tokens = expect SEMI tokens in
+     (Continue (loc,None), tokens)
   | ((LBRACE,loc) :: tokens) ->
      let (block_items, tokens) = parse_block_items tokens in
      let tokens = expect RBRACE tokens in
@@ -352,21 +394,32 @@ and parse_declaration tokens =
      fail_at loc
        (Printf.sprintf "Invalid declaration, expected ';', but found %s"
           (str_of_token other))
-
+and is_declaration tokens =
+  match peek tokens with
+  | ((INT,_),_) -> true
+  | _ -> false
 and parse_block_items tokens =
   let rec parse_block_items_1 tokens items =
-    match tokens with
-    | ((SEMI,_) :: tokens) -> parse_block_items_1 tokens items
-    | ((RBRACE,_) :: _) -> (List.rev items, tokens)
-    | ((INT,_) :: _) ->
+    if is_declaration tokens then
        let (decl, tokens) = parse_declaration tokens in
        parse_block_items_1 tokens (D decl :: items)
-    | _ ->
-       let (stmt, tokens) = parse_statement tokens in
-       parse_block_items_1 tokens (S stmt :: items)
+    else
+      match tokens with
+      | ((SEMI,_) :: tokens) -> parse_block_items_1 tokens items
+      | ((RBRACE,_) :: _) -> (List.rev items, tokens)
+      | _ ->
+         let (stmt, tokens) = parse_statement tokens in
+         parse_block_items_1 tokens (S stmt :: items)
   in
   parse_block_items_1 tokens []
 
+and parse_for_init tokens =
+  if is_declaration tokens then
+    let (decl, tokens) = parse_declaration tokens in
+    (InitDecl decl, tokens)
+  else
+    let (expr, tokens) = parse_optional_expr tokens SEMI in
+    (InitExpr expr, tokens)
 let parse_function tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
   let (ident, _, tokens) = expect_and_get (IDENTIFIER "") tokens in

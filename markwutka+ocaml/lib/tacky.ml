@@ -182,6 +182,7 @@ let rec generate_tacky_stmt ctx instrs stmt =
   | C_ast.Goto (_, label_str) ->
      (ctx, instrs <:: Jump label_str)
   | C_ast.Null -> (ctx, instrs)
+  | _ -> failwith "tacky missing statement implementations"
 
 and generate_tacky_declaration ctx instrs
 (C_ast.Declaration (_, var_name, expr)) =

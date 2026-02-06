@@ -82,8 +82,19 @@ and resolve_statement ctx stmt =
   | Label (loc,str,stmt) -> 
      let (ctx, stmt) = resolve_statement ctx stmt in
      (ctx, Label (loc,str,stmt))
-  | Goto (loc,str) -> (ctx, Goto (loc,str))
-  | Null -> (ctx, Null)
+  | While (loc,test_expr,stmt,opt_label) ->
+     let (ctx, stmt) = resolve_statement ctx stmt in
+     (ctx, While (loc,test_expr,stmt,opt_label))
+  | DoWhile (loc,test_expr,stmt,opt_label) ->
+     let (ctx, stmt) = resolve_statement ctx stmt in
+     (ctx, DoWhile (loc,test_expr,stmt,opt_label))
+  | For (loc,init,test_expr,post_expr,stmt,opt_label) ->
+     let (ctx, stmt) = resolve_statement ctx stmt in
+     (ctx, For (loc,init,test_expr,post_expr,stmt,opt_label))
+  | Break _ -> (ctx, stmt)
+  | Continue _ -> (ctx, stmt)
+  | Goto _ -> (ctx, stmt)
+  | Null -> (ctx, stmt)
 and resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
   let (ctx, unique_var) = make_unique_var ctx loc var_name in
   match var_exp with
