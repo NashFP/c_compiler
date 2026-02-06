@@ -119,7 +119,9 @@ let verify_label_and_goto (Program func_def) =
        let labels = find_labels labels (S true_stmt) in
        find_labels labels (S false_stmt)
     | S (If (_, _, true_stmt, None)) ->
-       find_labels labels (S true_stmt)
+      find_labels labels (S true_stmt)
+    | S (Compound (_, Block block_items)) ->
+      List.fold_left find_labels labels block_items
     | _ -> labels in
   let verify_goto labels used_labels block_item =
     match block_item with

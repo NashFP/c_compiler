@@ -307,8 +307,8 @@ and parse_expr tokens min_prec =
 let rec parse_statement tokens =
   match tokens with
   | [] -> failwith "Expected statement, found end of file"
-  | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
-     (Label (loc, str), tokens)
+(*  | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
+     (Label (loc, str), tokens)*)
   | ((GOTO,loc) :: tokens) ->
      let (tok,_, tokens) = expect_and_get (IDENTIFIER "") tokens in
      let tokens = expect SEMI tokens in
@@ -353,24 +353,22 @@ and parse_declaration tokens =
           (str_of_token other))
        
 and parse_block_items tokens =
-  let rec parse_block_items_1 got_label tokens items =
-    match peek tokens with
-    | ((SEMI,_), tokens) -> parse_block_items_1 got_label tokens items
-    | ((RBRACE,_), _) -> (List.rev items, tokens)
-    | ((INT,loc), _) ->
+  let rec parse_block_items_1 tokens items =
+    match tokens with
+    | ((SEMI,_) :: tokens) -> parse_block_items_1 tokens items
+    | ((RBRACE,_) :: _) -> (List.rev items, tokens)
+    | ((INT,_) :: _) ->
        let (decl, tokens) = parse_declaration tokens in
-       if got_label then
-         fail_at loc "Declaration appears after label"
-       else
-         parse_block_items_1 got_label tokens (D decl :: items)
+       parse_block_items_1 tokens (D decl :: items)
+     | (IDENTIFIER str,loc) :: (COLON,_) :: tokens ->
+        let new_label = Label (loc, str) in
+        let (stmt, tokens) = parse_statement tokens in
+        parse_block_items_1 tokens (S stmt :: S new_label :: items)
     | _ ->
        let (stmt, tokens) = parse_statement tokens in
-       match stmt with
-       | Label (_,_) ->
-          parse_block_items_1 true tokens (S stmt :: items)
-       | _ -> parse_block_items_1 got_label tokens (S stmt :: items)
+       parse_block_items_1 tokens (S stmt :: items)
   in
-  parse_block_items_1 false tokens []
+  parse_block_items_1 tokens []
 
 let parse_function tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
