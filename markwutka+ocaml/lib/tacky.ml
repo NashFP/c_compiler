@@ -21,7 +21,12 @@ type program_type = Program of function_definition
 type function_context = { func_name: string; func_next_temp_num: int }
 
 let (<::) lst item = item :: lst
-                     
+
+let tag_label maybe_label tag =
+  match maybe_label with
+  | None -> failwith "Label was not resolved"
+  | Some label -> Printf.sprintf "%s.%s" label tag
+
 let convert_unop unary_op =
   match unary_op with
   | C_ast.Complement -> Complement
@@ -126,9 +131,13 @@ let rec generate_tacky_expr ctx instrs expr =
   | C_ast.Assignment (_, C_ast.Var (_, var_name), expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
+  | C_ast.Assignment (loc, _, _) ->
+     fail_at loc "assignment to non-lvalue"
   | C_ast.AssignmentExpr (_, C_ast.Var (_, var_name), expr) ->
     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Copy (dst, Var var_name), Var var_name)
+  | C_ast.AssignmentExpr (loc, _, _) ->
+     fail_at loc "assignment to non-lvalue"
   | C_ast.Condition (_, test_expr, true_expr, false_expr) ->
      let (ctx, false_label_name) = make_func_label ctx "false" in
      let (ctx, end_label_name) = make_func_label ctx "end" in
@@ -148,7 +157,7 @@ let rec generate_tacky_expr ctx instrs expr =
        generate_tacky_expr ctx instrs false_expr in
      (ctx, instrs <:: Copy (false_expr, dst) <:: Label end_label_name,
       dst)     
-  | _ -> failwith "tacky can't match expr"
+
 
 let rec generate_tacky_stmt ctx instrs stmt =
   match stmt with
@@ -184,11 +193,62 @@ let rec generate_tacky_stmt ctx instrs stmt =
      (ctx, instrs)
   | C_ast.Goto (_, label_str) ->
      (ctx, instrs <:: Jump label_str)
+  | C_ast.Break (_, label) ->
+     (ctx, instrs <:: Jump (tag_label label "break"))
+  | C_ast.Continue (_, label) ->
+     (ctx, instrs <:: Jump (tag_label label "cont"))
+  | C_ast.While (_, test_expr, stmt, label) ->
+     let instrs = instrs <:: Label (tag_label label "cont") in
+     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs test_expr in
+     let instrs = instrs <:: JumpIfZero (dst, tag_label label "break") in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs stmt in
+     let instrs =
+       instrs
+       <:: Jump (tag_label label "cont")
+       <:: Label (tag_label label "break") in
+     (ctx, instrs)
+  | C_ast.DoWhile (_, test_expr, stmt, label) ->
+     let instrs = instrs <:: Label (tag_label label "top") in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs stmt in
+     let instrs = instrs <:: Label (tag_label label "cont") in
+     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs test_expr in
+     let instrs = instrs <:: JumpIfNotZero (dst, tag_label label "top") in
+     let instrs = instrs <:: Label (tag_label label "break") in
+     (ctx, instrs)
+  | C_ast.For (_, init, test_expr, post_expr, stmt, label) ->
+     let (ctx, instrs) =
+       (match init with
+        | InitDecl decl -> generate_tacky_declaration ctx instrs decl
+        | InitExpr (Some expr) ->
+           let (ctx, instrs, _) = generate_tacky_expr ctx instrs expr in
+           (ctx, instrs)
+        | InitExpr None -> (ctx, instrs)) in
+     let instrs = instrs <:: Label (tag_label label "top") in
+     let (ctx, instrs) =
+       (match test_expr with
+       | Some test_expr ->
+          let (ctx, instrs, dst) =
+            generate_tacky_expr ctx instrs test_expr in          
+          let instrs = instrs <:: JumpIfZero (dst, tag_label label "break") in
+          (ctx, instrs)
+       | None -> (ctx, instrs)) in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs stmt in
+     let instrs = instrs <:: Label (tag_label label "cont") in
+     let (ctx, instrs) =
+       (match post_expr with
+        | Some post_expr ->
+           let (ctx, instrs, _) = generate_tacky_expr ctx instrs post_expr in
+           (ctx, instrs)
+        | None -> (ctx, instrs)) in
+     let instrs =
+       instrs
+       <:: Jump (tag_label label "top")
+       <:: Label (tag_label label "break") in
+     (ctx, instrs)
   | C_ast.Null -> (ctx, instrs)
-  | _ -> failwith "tacky missing statement implementations"
 
 and generate_tacky_declaration ctx instrs
-(C_ast.Declaration (_, var_name, expr)) =
+      (C_ast.Declaration (_, var_name, expr)) =
   match expr with
   | None -> (ctx, instrs)
   | Some expr ->
