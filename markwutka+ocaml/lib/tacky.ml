@@ -1,5 +1,5 @@
 open Context
-    
+
 type unary_operator = Complement | Negate | Not
 type binary_operator = Add | Subtract | Multiply | Divide | Remainder |
                        ShiftLeft | ShiftRight | BitwiseAnd | BitwiseOr |
@@ -174,20 +174,23 @@ let rec generate_tacky_stmt ctx instrs stmt =
      let (ctx, instrs) = generate_tacky_stmt ctx instrs true_stmt in
      (ctx, instrs <:: Label end_label_name)
   | C_ast.Compound (_, Block block_items) ->
-    generate_block_items ctx instrs block_items
-  | C_ast.Label (_, label_str) ->
-     (ctx, instrs <:: Label label_str)
+     generate_block_items ctx instrs block_items
+  | C_ast.Label (_, label_str, stmt) ->
+     let instrs = instrs <:: Label label_str in
+     let (ctx, instrs) = generate_tacky_stmt ctx instrs stmt in
+     (ctx, instrs)
   | C_ast.Goto (_, label_str) ->
      (ctx, instrs <:: Jump label_str)
   | C_ast.Null -> (ctx, instrs)
 
 and generate_tacky_declaration ctx instrs
-    (C_ast.Declaration (_, var_name, expr)) =
+(C_ast.Declaration (_, var_name, expr)) =
   match expr with
   | None -> (ctx, instrs)
-  | Some expr -> let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
-    (ctx, instrs <:: Copy (dst, Var var_name))
-                     
+  | Some expr ->
+     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
+     (ctx, instrs <:: Copy (dst, Var var_name))
+
 and generate_block_item (ctx,instrs) item =
   match item with
   | C_ast.D decl -> generate_tacky_declaration ctx instrs decl

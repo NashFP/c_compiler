@@ -23,7 +23,7 @@ and statement_type = Return of loc_type * exp_type |
                      Expression of loc_type * exp_type |
                      If of loc_type * exp_type * statement_type *
                            statement_type option |
-                     Label of loc_type * string |
+                     Label of loc_type * string * statement_type |
                      Goto of loc_type * string |
                      Compound of loc_type * block_type |
                      Null

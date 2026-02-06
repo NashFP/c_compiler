@@ -307,8 +307,10 @@ and parse_expr tokens min_prec =
 let rec parse_statement tokens =
   match tokens with
   | [] -> failwith "Expected statement, found end of file"
-(*  | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
-     (Label (loc, str), tokens)*)
+  | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
+     let (stmt, tokens) = parse_statement tokens in
+     let new_label = Label (loc, str, stmt) in
+     (new_label, tokens)
   | ((GOTO,loc) :: tokens) ->
      let (tok,_, tokens) = expect_and_get (IDENTIFIER "") tokens in
      let tokens = expect SEMI tokens in
@@ -328,14 +330,13 @@ let rec parse_statement tokens =
          (If (loc, test_expr, then_stmt, Some else_stmt), tokens)
       | _ -> (If (loc, test_expr, then_stmt, None), tokens))
   | ((LBRACE,loc) :: tokens) ->
-    let (block_items, tokens) = parse_block_items tokens in
-    let tokens = expect RBRACE tokens in
-    (Compound (loc, Block block_items), tokens)
+     let (block_items, tokens) = parse_block_items tokens in
+     let tokens = expect RBRACE tokens in
+     (Compound (loc, Block block_items), tokens)
   | ((SEMI,_loc) :: tokens) -> (Null, tokens)
-
   | ((_,loc) :: _tokens) -> let (expr, tokens) = parse_expr tokens 0 in
-                   let tokens = expect SEMI tokens in
-         (Expression (loc, expr), tokens)
+                            let tokens = expect SEMI tokens in
+                            (Expression (loc, expr), tokens)
 
 and parse_declaration tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
@@ -351,7 +352,7 @@ and parse_declaration tokens =
      fail_at loc
        (Printf.sprintf "Invalid declaration, expected ';', but found %s"
           (str_of_token other))
-       
+
 and parse_block_items tokens =
   let rec parse_block_items_1 tokens items =
     match tokens with
@@ -360,10 +361,6 @@ and parse_block_items tokens =
     | ((INT,_) :: _) ->
        let (decl, tokens) = parse_declaration tokens in
        parse_block_items_1 tokens (D decl :: items)
-     | (IDENTIFIER str,loc) :: (COLON,_) :: tokens ->
-        let new_label = Label (loc, str) in
-        let (stmt, tokens) = parse_statement tokens in
-        parse_block_items_1 tokens (S stmt :: S new_label :: items)
     | _ ->
        let (stmt, tokens) = parse_statement tokens in
        parse_block_items_1 tokens (S stmt :: items)
@@ -379,15 +376,7 @@ let parse_function tokens =
   let tokens = expect LBRACE tokens in
   let (stmts, tokens) = parse_block_items tokens in
   let tokens = expect RBRACE tokens in
-  if not (List.is_empty stmts) then
-    match List.hd (List.rev stmts) with
-    | S (Label (loc, str)) ->
-       fail_at loc
-         (Printf.sprintf "Label %s appears without a statement after it"
-            str)
-    | _ -> (FunctionDef (loc, ident_str ident, stmts), tokens)
-  else
-    (FunctionDef (loc, ident_str ident, stmts), tokens)
+  (FunctionDef (loc, ident_str ident, stmts), tokens)
 
 let parse_program tokens =
   let (func, tokens) = parse_function tokens in
