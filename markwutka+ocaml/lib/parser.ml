@@ -327,13 +327,17 @@ let rec parse_statement tokens =
          let (else_stmt, tokens) = parse_statement tokens in
          (If (loc, test_expr, then_stmt, Some else_stmt), tokens)
       | _ -> (If (loc, test_expr, then_stmt, None), tokens))
+  | ((LBRACE,loc) :: tokens) ->
+    let (block_items, tokens) = parse_block_items tokens in
+    let tokens = expect RBRACE tokens in
+    (Compound (loc, Block block_items), tokens)
   | ((SEMI,_loc) :: tokens) -> (Null, tokens)
 
   | ((_,loc) :: _tokens) -> let (expr, tokens) = parse_expr tokens 0 in
                    let tokens = expect SEMI tokens in
          (Expression (loc, expr), tokens)
 
-let parse_declaration tokens =
+and parse_declaration tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
   let (var_name, _, tokens) = expect_identifier tokens in
   match peek tokens with
@@ -348,7 +352,7 @@ let parse_declaration tokens =
        (Printf.sprintf "Invalid declaration, expected ';', but found %s"
           (str_of_token other))
        
-let parse_block_items tokens =
+and parse_block_items tokens =
   let rec parse_block_items_1 got_label tokens items =
     match peek tokens with
     | ((SEMI,_), tokens) -> parse_block_items_1 got_label tokens items

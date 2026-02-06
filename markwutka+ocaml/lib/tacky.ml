@@ -173,27 +173,32 @@ let rec generate_tacky_stmt ctx instrs stmt =
      let instrs = instrs <:: JumpIfZero (dst, end_label_name) in
      let (ctx, instrs) = generate_tacky_stmt ctx instrs true_stmt in
      (ctx, instrs <:: Label end_label_name)
+  | C_ast.Compound (_, Block block_items) ->
+    generate_block_items ctx instrs block_items
   | C_ast.Label (_, label_str) ->
      (ctx, instrs <:: Label label_str)
   | C_ast.Goto (_, label_str) ->
      (ctx, instrs <:: Jump label_str)
   | C_ast.Null -> (ctx, instrs)
 
-let generate_tacky_declaration ctx instrs
+and generate_tacky_declaration ctx instrs
     (C_ast.Declaration (_, var_name, expr)) =
   match expr with
   | None -> (ctx, instrs)
   | Some expr -> let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
     (ctx, instrs <:: Copy (dst, Var var_name))
                      
-let generate_block_item (ctx,instrs) item =
+and generate_block_item (ctx,instrs) item =
   match item with
   | C_ast.D decl -> generate_tacky_declaration ctx instrs decl
   | C_ast.S stmt -> generate_tacky_stmt ctx instrs stmt
 
+and generate_block_items ctx instrs block_items =
+  List.fold_left generate_block_item (ctx,instrs) block_items
 let generate_tacky_function ctx (C_ast.FunctionDef (_, name, block_items)) =
-  let ctx = context_in_func ctx name in
-  let (ctx, instrs) = List.fold_left generate_block_item (ctx, []) block_items in
+  let ctx = enter_func ctx name in
+  let (ctx, instrs) = generate_block_items ctx [] block_items in
+  let ctx = leave_func ctx in
   (ctx, Function (name, List.rev (instrs <:: Return (ConstantInt 0L))))
 
 let generate_tacky_program ctx (C_ast.Program func_type) =
