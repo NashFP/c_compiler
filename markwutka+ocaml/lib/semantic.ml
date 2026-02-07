@@ -171,18 +171,26 @@ let verify_label_and_goto (Program func_def) =
     match block_item with
     | D _ -> labels
     | S (Label (loc, str,stmt)) ->
-       if StringMap.mem str labels then
-         fail_at loc (Printf.sprintf "Duplicate label %s in function" str)
-       else
-         let labels = find_labels labels (S stmt) in
-         StringMap.add str loc labels
+      if StringMap.mem str labels then
+        fail_at loc (Printf.sprintf "Duplicate label %s in function" str)
+      else
+        let labels = find_labels labels (S stmt) in
+        StringMap.add str loc labels
     | S (If (_, _, true_stmt, Some false_stmt)) ->
-       let labels = find_labels labels (S true_stmt) in
-       find_labels labels (S false_stmt)
+      let labels = find_labels labels (S true_stmt) in
+      find_labels labels (S false_stmt)
     | S (If (_, _, true_stmt, None)) ->
-       find_labels labels (S true_stmt)
+      find_labels labels (S true_stmt)
+    | S (While (_, _, stmt, _)) ->
+      find_labels labels (S stmt)
+    | S (DoWhile (_, _, stmt, _)) ->
+      find_labels labels (S stmt)
+    | S (For (_, _, _, _, stmt, _)) ->
+      find_labels labels (S stmt)
+    | S (Switch (_, _, stmt, _, _, _)) ->
+      find_labels labels (S stmt)
     | S (Compound (_, Block block_items)) ->
-       List.fold_left find_labels labels block_items
+      List.fold_left find_labels labels block_items
     | _ -> labels in
   let verify_goto labels used_labels block_item =
     match block_item with
