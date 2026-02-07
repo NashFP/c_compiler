@@ -337,6 +337,7 @@ type switch_block_ctx = { got_case: bool; got_default: bool;
                           cases: Int64Set.t }
 let validate_switches (Program func_def) =
   let rec validate_switch_block block_items =
+    Printf.printf "Validating switch block\n";
     let validate_item (ctx,items) item =
       match item with
       | D (Declaration (loc,var_name,init_opt)) ->
