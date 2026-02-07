@@ -27,6 +27,15 @@ let tag_label maybe_label tag =
   | None -> failwith "Label was not resolved"
   | Some label -> Printf.sprintf "%s.%s" label tag
 
+let case_tag maybe_case_label =
+  match maybe_case_label with
+  | None -> failwith "Case value was not evaluated"
+  | Some (v, label) ->
+     if v < 0L then
+       Printf.sprintf "%s.case_%Ld" label v
+     else
+       Printf.sprintf "%s.case.%Ld" label v
+
 let convert_unop unary_op =
   match unary_op with
   | C_ast.Complement -> Complement
@@ -197,6 +206,10 @@ let rec generate_tacky_stmt ctx instrs stmt =
      (ctx, instrs <:: Jump (tag_label label "break"))
   | C_ast.Continue (_, label) ->
      (ctx, instrs <:: Jump (tag_label label "cont"))
+  | C_ast.Case (_, _, label) ->
+     (ctx, instrs <:: Label (case_tag label))
+  | C_ast.Default (_, label) ->
+     (ctx, instrs <:: Label (tag_label label "case.default"))
   | C_ast.While (_, test_expr, stmt, label) ->
      let instrs = instrs <:: Label (tag_label label "cont") in
      let (ctx, instrs, dst) = generate_tacky_expr ctx instrs test_expr in
@@ -244,9 +257,10 @@ let rec generate_tacky_stmt ctx instrs stmt =
        instrs
        <:: Jump (tag_label label "top")
        <:: Label (tag_label label "break") in
-     (ctx, instrs)
+     (ctx, instrs)     
   | C_ast.Null -> (ctx, instrs)
   | _ -> failwith "tacky incomplete"
+
 
 and generate_tacky_declaration ctx instrs
       (C_ast.Declaration (_, var_name, expr)) =
