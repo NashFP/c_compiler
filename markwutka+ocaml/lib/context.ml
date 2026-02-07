@@ -1,12 +1,12 @@
 module StringMap = Map.Make(String)
-module Int64Set = Set.Make(Int64)
+module Int64Map = Map.Make(Int64)
 
 type var_type = { orig_var_name: string; unique_var_name: string }
 
 type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch |
                   BlockStatements
-type switch_ctx_type = { got_case: bool; got_default: bool;
-                         cases: Int64Set.t }
+type switch_ctx_type = { got_case: bool; opt_default : string option;
+                         cases: string Int64Map.t }
                          
 type context_type = { global_counter: int; func_name: string;
                       func_next_temp_num: int;
@@ -105,26 +105,38 @@ let curr_switch_ctx ctx =
   | [] -> None
   | switch_ctx :: _ -> Some switch_ctx
 
-let add_switch_case ctx v =
+let add_switch_case ctx v label =
   match ctx.switch_stack with
   | switch_ctx :: rest ->
     { ctx with switch_stack =
                  {switch_ctx with got_case=true;
-                                  cases=Int64Set.add v switch_ctx.cases}
+                                  cases=Int64Map.add v label switch_ctx.cases}
                  :: rest}
   | _ -> ctx
     
-let add_switch_default ctx =
+let add_switch_default ctx label =
   match ctx.switch_stack with
   | switch_ctx :: rest ->
     { ctx with switch_stack =
-                 {switch_ctx with got_default=true} :: rest}
+                 {switch_ctx with opt_default=label} :: rest}
   | _ -> ctx
     
 let in_switch_block ctx =
   match curr_block_id ctx with
   | Some (_, BlockSwitch) -> true
   | _ -> false
+
+let get_switch_cases switch_ctx =
+  Int64Map.to_list switch_ctx.cases
+
+let get_switch_default switch_ctx =
+  switch_ctx.opt_default
+
+let has_case switch_ctx v =
+  Int64Map.mem v switch_ctx.cases
+
+let has_default switch_ctx =
+  Option.is_some switch_ctx.opt_default
     
 let enter_block ctx block_type =
   let (ctx, block_prefix) =
@@ -134,8 +146,8 @@ let enter_block ctx block_type =
     | BlockFor -> (ctx, "for")
     | BlockStatements -> (ctx, "")
     | BlockSwitch ->
-        let new_switch_ctx = {got_case=false; got_default=false;
-                              cases=Int64Set.empty} in
+        let new_switch_ctx = {got_case=false; opt_default=None;
+                              cases=Int64Map.empty} in
         ({ctx with switch_stack=new_switch_ctx::ctx.switch_stack},
          "switch") in
   let block_name = Printf.sprintf "%s_%s.%d" ctx.func_name

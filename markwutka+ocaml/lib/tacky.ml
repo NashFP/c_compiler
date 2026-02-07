@@ -257,10 +257,51 @@ let rec generate_tacky_stmt ctx instrs stmt =
        instrs
        <:: Jump (tag_label label "top")
        <:: Label (tag_label label "break") in
-     (ctx, instrs)     
+     (ctx, instrs)
+  | C_ast.Switch (_, expr, stmt, cases, opt_default, label) ->
+    let (ctx, instrs, switch_exp_dst) =
+      generate_tacky_expr ctx instrs expr in
+    let (ctx, switch_cmp_dst_name) = make_func_temporary ctx in
+    let switch_cmp_dst = Var switch_cmp_dst_name in
+    let rec generate_case_tests instrs prev_case_val cases =
+      (match cases with
+       | [] -> instrs
+       | ((next_v, _) as case_data) :: cases_rest ->
+         let instrs =
+           (match prev_case_val with
+            | None -> instrs
+            | Some prev_v ->
+              if next_v > Int64.add prev_v 1L then
+                (match opt_default with
+                 | None ->
+                   instrs
+                   <:: Binary (LessThan, switch_exp_dst, ConstantInt next_v,
+                               switch_cmp_dst)
+                   <:: JumpIfNotZero (switch_cmp_dst, tag_label label "break")
+                 | Some _ ->
+                   instrs
+                   <:: Binary (LessThan, switch_exp_dst, ConstantInt next_v,
+                               switch_cmp_dst)
+                   <:: JumpIfNotZero
+                     (switch_cmp_dst, tag_label opt_default "case.default"))
+              else
+                instrs) in
+         let instrs =
+           instrs
+           <:: Binary (Equal, switch_exp_dst, ConstantInt next_v,
+                       switch_cmp_dst)
+           <:: JumpIfNotZero (switch_cmp_dst, case_tag (Some case_data)) in
+         generate_case_tests instrs (Some next_v) cases_rest)
+    in
+    let instrs = generate_case_tests instrs None cases in
+    let instrs =
+      (match opt_default with
+       | None -> instrs <:: Jump (tag_label label "break")
+       | Some _ ->
+         instrs <:: Jump (tag_label opt_default "case.default")) in
+    let (ctx, instrs) = generate_tacky_stmt ctx instrs stmt in
+    (ctx, instrs <:: Label (tag_label label "break"))
   | C_ast.Null -> (ctx, instrs)
-  | _ -> failwith "tacky incomplete"
-
 
 and generate_tacky_declaration ctx instrs
       (C_ast.Declaration (_, var_name, expr)) =

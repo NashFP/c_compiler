@@ -32,6 +32,7 @@ and statement_type = Return of loc_type * exp_type |
                      Case of loc_type * exp_type * (int64 * string) option |
                      Default of loc_type * string option |
                      Switch of loc_type * exp_type * statement_type *
+                               (int64 * string) list * string option *
                                string option |
                      While of loc_type * exp_type * statement_type *
                                 string option |

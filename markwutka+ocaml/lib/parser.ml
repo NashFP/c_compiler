@@ -383,7 +383,7 @@ let rec parse_statement tokens =
     let (switch_expr, tokens) = parse_expr tokens 0 in
     let tokens = expect RPAREN tokens in
     let (stmt, tokens) = parse_statement tokens in
-    (Switch (loc, switch_expr, stmt, None), tokens)
+    (Switch (loc, switch_expr, stmt, [], None, None), tokens)
   | ((CASE,loc) :: tokens) ->
     let (case_expr, tokens) = parse_expr tokens 0 in
     let tokens = expect COLON tokens in

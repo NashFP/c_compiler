@@ -128,12 +128,12 @@ and resolve_statement ctx stmt create_block =
      let (ctx, stmt) = resolve_statement ctx stmt true in
      let ctx = leave_block ctx in
      (ctx, For (loc,init,test_expr,post_expr,stmt,opt_label))
-  | Switch (loc,expr,stmt,opt_label) ->
+  | Switch (loc,expr,stmt, cases, opt_default, opt_label) ->
     let (ctx,_) = enter_block ctx BlockSwitch in
     let (ctx, expr) = resolve_expr ctx expr in
     let (ctx, stmt) = resolve_statement ctx stmt false in
     let ctx = leave_block ctx in
-    (ctx, Switch (loc,expr,stmt,opt_label))
+    (ctx, Switch (loc,expr,stmt,cases, opt_default, opt_label))
   | Break _ -> (ctx, stmt)
   | Continue _ -> (ctx, stmt)
   | Case _ -> (ctx, stmt)
@@ -294,11 +294,15 @@ let label_loops ctx (Program func_def) =
       let (ctx, stmt) = label_stmt ctx stmt true in
       let ctx = leave_block ctx in
        (ctx, For (loc, init, test_expr, post_expr, stmt, Some block_name))
-    | Switch (loc, switch_expr, stmt, _) ->
+    | Switch (loc, switch_expr, stmt, _, _, _) ->
       let (ctx, block_name) = enter_block ctx BlockSwitch in
       let (ctx, stmt) = label_stmt ctx stmt false in
-      let ctx = leave_block ctx in
-      (ctx, Switch (loc, switch_expr, stmt, Some block_name))
+      (match curr_switch_ctx ctx with
+      | None -> failwith "Switch context is missing"
+      | Some switch_ctx ->
+        (leave_block ctx, Switch (loc, switch_expr, stmt,
+                      get_switch_cases switch_ctx,
+                      get_switch_default switch_ctx, Some block_name)))
     | Case (loc, expr, _) ->
       (match curr_switch_id ctx with
        | None -> fail_at loc "case statement outside of a switch"
@@ -310,10 +314,10 @@ let label_loops ctx (Program func_def) =
             (match curr_switch_ctx ctx with
              | None -> fail_at loc "case statement outside of a switch"
              | Some switch_ctx ->
-               if Int64Set.mem v switch_ctx.cases then
+               if has_case switch_ctx v then
                  fail_at loc "duplicate case value"
                else
-                 (add_switch_case ctx v,
+                 (add_switch_case ctx v block_id,
                   Case (loc, expr, Some (v, block_id))))))
     | Default (loc, _) ->
       (match curr_switch_id ctx with
@@ -322,10 +326,11 @@ let label_loops ctx (Program func_def) =
          (match curr_switch_ctx ctx with
           | None -> fail_at loc "default statement outside of a switch"
           | Some switch_ctx ->
-            if switch_ctx.got_default then
+            if has_default switch_ctx then
               fail_at loc "duplicate default switch case"
             else
-              (add_switch_default ctx, Default (loc, Some block_id))))
+              (add_switch_default ctx (Some block_id),
+               Default (loc, Some block_id))))
     | Null -> (ctx, stmt)       
   and label_optional_stmt ctx optional_stmt =
     match optional_stmt with
@@ -343,7 +348,7 @@ let label_loops ctx (Program func_def) =
            if not switch_ctx.got_case then
              (warn_at loc "declaration in switch cannot be initialized";
               (ctx, D (Declaration (loc, var_name, None)) :: items))
-           else if not switch_ctx.got_default then
+           else if not (has_default switch_ctx) then
              fail_at loc
                "declaration not allowed within non-default switch case"
            else
