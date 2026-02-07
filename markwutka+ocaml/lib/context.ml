@@ -78,6 +78,13 @@ let curr_loop_id ctx =
     | _ -> true in
   List.find_opt is_loop ctx.block_stack
 
+let curr_switch_id ctx =
+  let is_switch (_,block_type) =
+    match block_type with
+    | BlockSwitch -> true
+    | _ -> false in
+  List.find_opt is_switch ctx.block_stack
+
 let enter_scope ctx =
   { ctx with func_vars_stack=StringMap.empty :: ctx.func_vars_stack }
 

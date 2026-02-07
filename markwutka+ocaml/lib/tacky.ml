@@ -246,6 +246,7 @@ let rec generate_tacky_stmt ctx instrs stmt =
        <:: Label (tag_label label "break") in
      (ctx, instrs)
   | C_ast.Null -> (ctx, instrs)
+  | _ -> failwith "tacky incomplete"
 
 and generate_tacky_declaration ctx instrs
       (C_ast.Declaration (_, var_name, expr)) =

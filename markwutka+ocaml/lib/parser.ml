@@ -16,6 +16,8 @@ let str_of_token = function
   | FOR -> "for"
   | BREAK -> "break"
   | CONTINUE -> "continue"
+  | SWITCH -> "switch"
+  | CASE -> "case"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -375,6 +377,16 @@ let rec parse_statement tokens =
      let (block_items, tokens) = parse_block_items tokens in
      let tokens = expect RBRACE tokens in
      (Compound (loc, Block block_items), tokens)
+  | ((SWITCH,loc) :: tokens) ->
+    let tokens = expect LPAREN tokens in
+    let (switch_expr, tokens) = parse_expr tokens 0 in
+    let tokens = expect RPAREN tokens in
+    let (stmt, tokens) = parse_statement tokens in
+    (Switch (loc, switch_expr, stmt, None), tokens)
+  | ((CASE,loc) :: tokens) ->
+    let (case_expr, tokens) = parse_expr tokens 0 in
+    let tokens = expect COLON tokens in
+    (Case (loc, case_expr, None), tokens)
   | ((SEMI,_loc) :: tokens) -> (Null, tokens)
   | ((_,loc) :: _tokens) -> let (expr, tokens) = parse_expr tokens 0 in
                             let tokens = expect SEMI tokens in

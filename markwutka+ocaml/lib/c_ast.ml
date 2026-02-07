@@ -29,6 +29,10 @@ and statement_type = Return of loc_type * exp_type |
                      Compound of loc_type * block_type |
                      Break of loc_type * string option |
                      Continue of loc_type * string option |
+                     Case of loc_type * exp_type * (int64 * string) option |
+                     Default of loc_type * string option |
+                     Switch of loc_type * exp_type * statement_type *
+                               string option |
                      While of loc_type * exp_type * statement_type *
                                 string option |
                      DoWhile of loc_type * exp_type * statement_type *

@@ -2,6 +2,7 @@ open C_ast
 open Context
 
 module StringSet = Set.Make(String)
+module Int64Set = Set.Make(Int64)
 
 let (<::) lst item = item :: lst
 
@@ -122,8 +123,16 @@ and resolve_statement ctx stmt =
      let (ctx, stmt) = resolve_statement ctx stmt in
      let ctx = leave_scope ctx in
      (ctx, For (loc,init,test_expr,post_expr,stmt,opt_label))
+  | Switch (loc,expr,stmt,opt_label) ->
+    let ctx = enter_scope ctx in
+    let (ctx, expr) = resolve_expr ctx expr in
+    let (ctx, stmt) = resolve_statement ctx stmt in
+    let ctx = leave_scope ctx in
+    (ctx, Switch (loc,expr,stmt,opt_label))
   | Break _ -> (ctx, stmt)
   | Continue _ -> (ctx, stmt)
+  | Case _ -> (ctx, stmt)
+  | Default _ -> (ctx, stmt)
   | Goto _ -> (ctx, stmt)
   | Null -> (ctx, stmt)
 and resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
@@ -193,6 +202,49 @@ let verify_label_and_goto (Program func_def) =
   in
   Program (verify_function func_def)
 
+let rec eval_const_expr expr =
+  let to_bool i = if i == 0L then false else true  in
+  let from_bool b = if b then 1L else 0L in
+  match expr with
+  | ConstantInt (_,v) -> Some v
+  | Unary (_, op, unary_expr) ->
+    (match eval_const_expr unary_expr with
+     | None -> None
+     | Some v ->
+       (match op with
+        | Complement -> Some (Int64.logxor v 0L)
+        | Negate -> Some (Int64.neg v)
+        | Not -> Some (if v == 0L then 1L else 0L)
+        | _ -> None))
+  | Binary (_, op, left, right) ->
+    (match eval_const_expr left with
+     | None -> None
+     | Some l ->
+       (match eval_const_expr right with
+        | None -> None
+        | Some r ->
+          (match op with
+           | Add -> Some (Int64.add l r)
+           | Subtract -> Some (Int64.sub l r)
+           | Multiply -> Some (Int64.mul l r)
+           | Divide -> Some (Int64.div l r)
+           | Remainder -> Some (Int64.rem l r)
+           | ShiftLeft -> Some (Int64.shift_left l (Int64.to_int r))
+           | ShiftRight -> Some (Int64.shift_right l (Int64.to_int r))
+           | BitwiseAnd -> Some (Int64.logand l r)
+           | BitwiseOr -> Some (Int64.logor l r)
+           | BitwiseXor -> Some (Int64.logxor l r)
+           | And -> Some (from_bool ((to_bool l) && (to_bool r)))
+           | Or -> Some (from_bool ((to_bool l) || (to_bool r)))
+           | Equal -> Some (from_bool (l == r))
+           | NotEqual -> Some (from_bool (l != r))
+           | LessThan -> Some (from_bool (l < r))
+           | LessOrEqual -> Some (from_bool (l <= r))
+           | GreaterThan -> Some (from_bool (l > r))
+           | GreaterOrEqual -> Some (from_bool (l >= r))
+           | _ -> None)))
+  | _ -> None
+         
 let label_loops ctx (Program func_def) =
   let rec label_stmt ctx stmt =
     match stmt with
@@ -221,7 +273,7 @@ let label_loops ctx (Program func_def) =
        (match curr_loop_id ctx with
         | None -> fail_at loc "continue statement outside of a loop"
         | Some (block_id, _) ->
-           (ctx, Continue (loc, Some block_id)))
+          (ctx, Continue (loc, Some block_id)))
     | While (loc, test_expr, stmt, _) ->
        let (ctx, block_name) = enter_block ctx BlockWhile in
        let (ctx, stmt) = label_stmt ctx stmt in
@@ -233,12 +285,29 @@ let label_loops ctx (Program func_def) =
        let ctx = leave_block ctx in
        (ctx, DoWhile (loc, test_expr, stmt, Some block_name))
     | For (loc, init, test_expr, post_expr, stmt, _) ->
-       let (ctx, block_name) = enter_block ctx BlockFor in
-       let (ctx, stmt) = label_stmt ctx stmt in
-       let ctx = leave_block ctx in
+      let (ctx, block_name) = enter_block ctx BlockFor in
+      let (ctx, stmt) = label_stmt ctx stmt in
+      let ctx = leave_block ctx in
        (ctx, For (loc, init, test_expr, post_expr, stmt, Some block_name))
-    | Null -> (ctx, stmt)
-       
+    | Switch (loc, switch_expr, stmt, _) ->
+      let (ctx, block_name) = enter_block ctx BlockSwitch in
+      let (ctx, stmt) = label_stmt ctx stmt in
+      let ctx = leave_block ctx in
+      (ctx, Switch (loc, switch_expr, stmt, Some block_name))
+    | Case (loc, expr, _) ->
+      (match curr_switch_id ctx with
+       | None -> fail_at loc "case statement outside of a switch"
+       | Some (block_id,_) ->
+         (match eval_const_expr expr with
+          | None ->
+            fail_at loc "case expression must be a constant expression"
+          | Some v -> (ctx, Case (loc, expr, Some (v, block_id)))))
+    | Default (loc, _) ->
+      (match curr_switch_id ctx with
+       | None -> fail_at loc "default statement outside of a switch"
+       | Some (block_id, _) ->
+         (ctx, Default (loc, Some block_id)))
+    | Null -> (ctx, stmt)       
   and label_optional_stmt ctx optional_stmt =
     match optional_stmt with
     | None -> (ctx, None)
@@ -261,6 +330,121 @@ let label_loops ctx (Program func_def) =
     let ctx = leave_func ctx in
     (ctx, FunctionDef (loc, func_name, block_items))
   in
-  let (_, func_def) = (label_function_loops ctx  func_def) in
+  let (_, func_def) = (label_function_loops ctx func_def) in
   (ctx, Program func_def)
 
+type switch_block_ctx = { got_case: bool; got_default: bool;
+                          cases: Int64Set.t }
+let validate_switches (Program func_def) =
+  let rec validate_switch_block block_items =
+    let validate_item (ctx,items) item =
+      match item with
+      | D (Declaration (loc,var_name,init_opt)) ->
+        if ctx.got_case && not ctx.got_default then
+          fail_at loc "Declarations are not allowed within switch cases"
+        else
+          (ctx, D (Declaration (loc, var_name, init_opt)) :: items)
+      | S stmt ->
+        (match stmt with
+         | Case (loc, _, None) ->
+           fail_at loc "Case expression value should have been computed"
+         | Case (loc, expr, Some (v, label)) ->
+           if Int64Set.mem v ctx.cases then
+             fail_at loc "Duplicate case expression"
+           else
+             ({ctx with got_case=true; cases=Int64Set.add v ctx.cases},
+              (S (Case (loc, expr, Some (v, label)))) :: items)
+         | Default (loc, opt_label) ->
+           if ctx.got_default then
+             fail_at loc "Duplicate default case"
+           else
+             ({ctx with got_default=true},
+              (S (Default (loc, opt_label))) :: items)
+         | Return _ -> (ctx, (S stmt) :: items)
+         | Expression _ -> (ctx, (S stmt) ::items)
+         | If (loc, expr, true_stmt, Some false_stmt) ->
+           (ctx, S (If (loc, expr, validate_stmt_switches true_stmt,
+               Some (validate_stmt_switches false_stmt))) :: items)
+         | If (loc, expr, true_stmt, None) ->
+           (ctx,
+            S (If (loc, expr, validate_stmt_switches true_stmt, None)) :: items)
+         | Label _ -> (ctx, S stmt :: items)
+         | Goto _ -> (ctx, S stmt :: items)
+         | Compound (loc, Block block_items) ->
+           (ctx,
+            S (Compound
+              (loc, Block (List.map validate_block_item_switches block_items)))
+              :: items)
+         | Break _ -> (ctx, S stmt :: items)
+         | Continue _ -> (ctx, S stmt :: items)
+         | Switch (loc, expr,
+                   Compound (c_loc, Block block_items), opt_label) ->
+           let block_items = validate_switch_block block_items in
+           (ctx,
+            S (Switch (loc, expr,
+                       Compound (c_loc, Block block_items), opt_label))
+              :: items)
+         | Switch(loc, expr, stmt, opt_label) ->
+           (ctx, S (Switch (loc, expr,
+                            validate_stmt_switches stmt, opt_label))
+              :: items)
+         | While (loc, expr, stmt, opt_label) ->
+           (ctx, S (While (loc, expr, validate_stmt_switches stmt, opt_label))
+              :: items)
+         | DoWhile (loc, expr, stmt, opt_label) ->
+           (ctx, S (DoWhile (loc, expr,
+                             validate_stmt_switches stmt, opt_label))
+              :: items)
+         | For (loc, init, test_expr, post_expr, stmt, opt_label) ->
+           (ctx, S (For (loc, init, test_expr, post_expr,
+                validate_stmt_switches stmt, opt_label)) :: items)
+         | Null -> (ctx, S Null :: items))
+    in
+    let (_,block_items) = List.fold_left validate_item
+        ({ got_case=false; got_default=false; cases= Int64Set.empty},[])
+        block_items
+    in
+    List.rev block_items
+             
+  and validate_stmt_switches stmt =
+    match stmt with
+    | Return _ -> stmt
+    | Expression _ -> stmt
+    | If (loc, expr, true_stmt, Some false_stmt) ->
+      If (loc, expr, validate_stmt_switches true_stmt,
+          Some (validate_stmt_switches false_stmt))
+    | If (loc, expr, true_stmt, None) ->
+      If (loc, expr, validate_stmt_switches true_stmt, None)
+    | Label _ -> stmt
+    | Goto _ -> stmt
+    | Compound (loc, Block block_items) ->
+      Compound (loc,
+                Block (List.map validate_block_item_switches block_items))
+    | Break _ -> stmt
+    | Continue _ -> stmt
+    | Case _ -> stmt
+    | Default _ -> stmt
+    | Switch (loc, expr, Compound (c_loc, Block block_items), opt_label) ->
+      let block_items =
+        validate_switch_block block_items in
+      Switch (loc, expr, Compound (c_loc, Block block_items), opt_label)
+    | Switch (loc, expr, stmt, opt_label) ->
+      Switch (loc, expr, validate_stmt_switches stmt, opt_label)
+    | While (loc, exp_type, stmt, opt_label) ->
+      While (loc, exp_type, validate_stmt_switches stmt, opt_label)
+    | DoWhile (loc, exp_type, stmt, opt_label) ->
+      DoWhile (loc, exp_type, validate_stmt_switches stmt, opt_label)
+    | For (loc, init, test_expr, post_expr, stmt, opt_label) ->
+      For (loc, init, test_expr, post_expr,
+           validate_stmt_switches stmt, opt_label)
+    | Null -> Null
+  and validate_block_item_switches block_item =
+    match block_item with
+    | D _ -> block_item
+    | S stmt -> S (validate_stmt_switches stmt) in
+  let validate_function_switches
+      (FunctionDef (loc, func_name, block_items)) =
+    FunctionDef (loc, func_name,
+                 List.map validate_block_item_switches block_items) in
+    
+  Program (validate_function_switches func_def)
