@@ -14,6 +14,7 @@ type token_type =
   | CONTINUE
   | SWITCH
   | CASE
+  | DEFAULT
   | LPAREN
   | RPAREN
   | LBRACE
@@ -173,6 +174,7 @@ let make_identifier_token ident =
   | "continue" -> CONTINUE
   | "switch" -> SWITCH
   | "case" -> CASE
+  | "default" -> DEFAULT
   | _ -> IDENTIFIER ident
 
 let parse_identifier lexer =

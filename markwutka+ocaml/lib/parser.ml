@@ -18,6 +18,7 @@ let str_of_token = function
   | CONTINUE -> "continue"
   | SWITCH -> "switch"
   | CASE -> "case"
+  | DEFAULT -> "default"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -387,6 +388,9 @@ let rec parse_statement tokens =
     let (case_expr, tokens) = parse_expr tokens 0 in
     let tokens = expect COLON tokens in
     (Case (loc, case_expr, None), tokens)
+  | ((DEFAULT,loc) :: tokens) ->
+    let tokens = expect COLON tokens in
+    (Default (loc, None), tokens)
   | ((SEMI,_loc) :: tokens) -> (Null, tokens)
   | ((_,loc) :: _tokens) -> let (expr, tokens) = parse_expr tokens 0 in
                             let tokens = expect SEMI tokens in
