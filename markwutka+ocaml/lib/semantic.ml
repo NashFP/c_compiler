@@ -27,27 +27,36 @@ let compound_name = function
 let rec resolve_expr ctx expr =
   match expr with
   | Var (loc, var_name) ->
-    (match lookup_var ctx var_name with
-     | None -> Context.fail_at loc
+    (match lookup_identifier ctx var_name with
+     | (None,_) -> Context.fail_at loc
                  (Printf.sprintf "Undeclared variable: %s" var_name)
-     | Some v -> (ctx, Var (loc, v.unique_var_name)))
+     | (Some v,_) ->
+        if v.id_type != IdVar then
+          fail_at loc (Printf.sprintf "Cannot treat function %s as a variable"
+                         var_name)
+        else
+          (ctx, Var (loc, v.unique_name)))
   | Assignment (loc, (Var (vloc, var_name)), expr) ->
-     (match lookup_var ctx var_name with
-      | None -> Context.fail_at loc
+     (match lookup_identifier ctx var_name with
+      | (None,_) -> Context.fail_at loc
                   (Printf.sprintf "Undeclared variable: %s" var_name)
-      | Some v ->
-         let (ctx, expr) = resolve_expr ctx expr in
-         (ctx, Assignment (loc, Var (vloc, v.unique_var_name), expr)))
+      | (Some v,_) ->
+         if v.id_type != IdVar then
+           fail_at loc (Printf.sprintf "Cannot assign a value to function %s"
+                          var_name)
+         else
+           let (ctx, expr) = resolve_expr ctx expr in
+           (ctx, Assignment (loc, Var (vloc, v.unique_name), expr)))
   | Assignment (loc, _, _) ->
      Context.fail_at loc
        (Printf.sprintf "Invalid lvalue in assignment")
   | AssignmentExpr (loc, (Var (vloc, var_name)), expr) ->
-     (match lookup_var ctx var_name with
-      | None -> Context.fail_at loc
+     (match lookup_identifier ctx var_name with
+      | (None,_) -> Context.fail_at loc
                   (Printf.sprintf "Undeclared variable: %s" var_name)
-      | Some v ->
+      | (Some v,_) ->
          let (ctx, expr) = resolve_expr ctx expr in
-         (ctx, AssignmentExpr (loc, Var (vloc, v.unique_var_name), expr)))
+         (ctx, AssignmentExpr (loc, Var (vloc, v.unique_name), expr)))
   | AssignmentExpr (loc, _, _) ->
      Context.fail_at loc
        (Printf.sprintf "Invalid lvalue in assignment")
@@ -69,8 +78,24 @@ let rec resolve_expr ctx expr =
      let (ctx, false_expr) = resolve_expr ctx false_expr in
      (ctx, Condition (loc, test_expr, true_expr, false_expr))
   | FunctionCall (loc, name, args) ->
-     let (ctx, args) = map_with_ctx resolve_expr ctx args in
-     (ctx, FunctionCall (loc, name, args))
+     let (ident, _) = lookup_identifier ctx name in
+     match ident with
+     | None -> fail_at loc (Printf.sprintf "Undeclared function %s"
+                              name)
+     | Some ident ->
+        (match ident.args with
+         | None -> fail_at loc
+                     (Printf.sprintf "Function call on non function %s"
+                              name)
+         | Some declared_args ->
+            if List.length args != List.length declared_args then
+              fail_at loc
+                (Printf.sprintf
+                   "Function takes %d arguments but is called with %d"
+                   (List.length declared_args) (List.length args))
+            else
+              let (ctx, args) = map_with_ctx resolve_expr ctx args in
+              (ctx, FunctionCall (loc, name, args)))
 and resolve_optional_expr ctx maybe_expr =
   match maybe_expr with
   | None -> (ctx, None)
@@ -144,15 +169,18 @@ and resolve_statement ctx stmt create_block =
   | Goto _ -> (ctx, stmt)
   | Null -> (ctx, stmt)
 and resolve_var_decl ctx (loc, var_name, maybe_expr) =
-     let (ctx, unique_var) = make_unique_var ctx loc var_name in
+  let (ctx, unique_var) = register_identifier ctx loc var_name
+                            IdVar false None in
      (match maybe_expr with
      | Some var_exp ->
         let (ctx, var_exp) = resolve_expr ctx var_exp in
-        (ctx, (loc, unique_var.unique_var_name, Some var_exp))
-     | None -> (ctx,(loc, unique_var.unique_var_name, None)))  
+        (ctx, (loc, unique_var.unique_name, Some var_exp))
+     | None -> (ctx,(loc, unique_var.unique_name, None)))  
 and resolve_declaration ctx decl =
   match decl with
-  | FunDecl _ ->
+  | FunDecl (loc, name, args, _) ->
+     let (ctx, _) = register_identifier ctx loc name IdFuncForward
+                      true (Some args) in
      (ctx, decl)
   | VarDecl decl ->
      let (ctx, decl) = resolve_var_decl ctx decl in
@@ -167,14 +195,39 @@ and resolve_block_items ctx block_items =
   map_with_ctx resolve_block_item ctx block_items
 and resolve_function ctx (loc, func_name, args, maybe_block_items) =
   let uniq_arg_name ctx arg =
-    let (ctx, arg) = make_unique_var ctx loc arg in
-    (ctx, arg.unique_var_name) in
+    let (ctx, arg) = register_identifier ctx loc arg IdVar false None in
+    (ctx, arg.unique_name) in
+  let check_function_defined ctx =
+    match lookup_identifier ctx func_name with
+    | (None, _) -> ctx
+    | (Some ident, _) ->
+       (match ident.id_type with
+        | IdFuncForward ->
+           if (List.length (Option.get ident.args)) !=
+                List.length args then
+             fail_at loc
+               (Printf.sprintf
+                  "Function %s has %d arguments, previously declared with %d"
+                  func_name (List.length args)
+                  (List.length (Option.get ident.args)))
+           else
+             ctx
+        | _ ->
+           fail_at loc "Duplicate function definition") in
+  let ctx = check_function_defined ctx in
+  let func_id_type = if Option.is_some maybe_block_items then IdFunc
+                     else IdFuncForward in
+  let (ctx, _) = register_identifier ctx loc func_name
+                   func_id_type true (Some args) in
+  let ctx = enter_statements_block ctx in
   let (ctx, args) = map_with_ctx uniq_arg_name ctx args in
   let ctx = enter_func ctx func_name in
   match maybe_block_items with
-  | None -> (leave_func ctx, (loc, func_name, args, maybe_block_items))
+  | None -> let ctx = leave_block ctx in
+            (leave_func ctx, (loc, func_name, args, maybe_block_items))
   | Some block_items ->
      let (ctx,block_items) = resolve_block_items ctx block_items in
+     let ctx = leave_block ctx in
      (leave_func ctx, (loc, func_name, args, Some block_items))
 
 let resolve_variables ctx (Program func_defs) =

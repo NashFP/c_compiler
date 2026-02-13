@@ -1,7 +1,10 @@
 module StringMap = Map.Make(String)
 module Int64Map = Map.Make(Int64)
 
-type var_type = { orig_var_name: string; unique_var_name: string }
+type identifier_id_type = IdVar | IdFuncForward | IdFunc
+type identifier_type = { id_type : identifier_id_type;
+                         orig_name: string; unique_name: string;
+                       has_linkage: bool; args: (string list) option}
 
 type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch |
                   BlockStatements
@@ -10,7 +13,8 @@ type switch_ctx_type = { got_case: bool; opt_default : string option;
                          
 type context_type = { global_counter: int; func_name: string;
                       func_next_temp_num: int;
-                      func_vars_stack: (var_type StringMap.t) list;
+                      identifier_stack: (identifier_type StringMap.t) list;
+                      global_identifiers: identifier_type StringMap.t;
                       func_labels: int StringMap.t;
                       block_stack: (string * block_type) list;
                       switch_stack: switch_ctx_type list;
@@ -18,7 +22,8 @@ type context_type = { global_counter: int; func_name: string;
 
 let make_context = { global_counter=0; func_name="";
                      func_next_temp_num=0;
-                     func_vars_stack=[StringMap.empty];
+                     identifier_stack=[StringMap.empty];
+                     global_identifiers=StringMap.empty;
                      func_labels=StringMap.empty;
                      block_stack=[];
                      switch_stack=[];
@@ -53,33 +58,56 @@ let make_func_label ctx prefix =
     ({ctx with func_labels=StringMap.add prefix 1 ctx.func_labels},
      new_label)
 
-let lookup_var ctx var_name =
-  let rec lookup_var_1 func_vars_stack =
-    match func_vars_stack with
-    | [] -> None
-    | func_vars :: func_vars_stack ->
-      (match StringMap.find_opt var_name func_vars with
-       | Some v -> Some v
-       | None -> lookup_var_1 func_vars_stack)
+let lookup_identifier ctx ident =  
+  let rec lookup_ident_1 identifier_stack in_current_scope =
+    match identifier_stack with
+    | [] ->
+       (match StringMap.find_opt ident ctx.global_identifiers with
+        | None -> (None, false)
+        | Some v -> (Some v, false))
+    | identifiers :: identifier_stack ->
+      (match StringMap.find_opt ident identifiers with
+       | Some v -> (Some v, in_current_scope)
+       | None -> lookup_ident_1 identifier_stack false)
   in
-  lookup_var_1 ctx.func_vars_stack
-    
-let make_unique_var ctx loc var_name =
-  match StringMap.find_opt var_name (List.hd ctx.func_vars_stack) with
-  | Some _ -> fail_at loc
-                (Printf.sprintf "Duplicate variable declaration: %s"
-                   var_name)
-  | None ->
-    let unique_var_name = Printf.sprintf "%s.%d" var_name
-        ctx.global_counter in
-    let unique_var = {orig_var_name=var_name;
-                      unique_var_name=unique_var_name} in
-    let func_vars = List.hd ctx.func_vars_stack in
-    let func_vars = StringMap.add var_name unique_var func_vars in
-    ({ctx with global_counter=ctx.global_counter+1;
-               func_vars_stack=func_vars :: List.tl ctx.func_vars_stack },
-     unique_var)
+  lookup_ident_1 ctx.identifier_stack true
 
+let compare_args args1 args2 =
+  (List.length args1) == (List.length args2)
+
+let register_identifier ctx loc ident_name id_type has_linkage opt_args =
+  let symbol_map = if has_linkage then ctx.global_identifiers else
+                  List.hd ctx.identifier_stack in
+  match StringMap.find_opt ident_name symbol_map with
+  | Some ident ->
+     if not (Option.equal compare_args opt_args ident.args) ||
+          (ident.id_type == IdVar && id_type == IdVar) then
+       fail_at loc (Printf.sprintf "Duplicate identifier declared: %s"
+                      ident_name)
+     else
+       (ctx, ident)
+  | None ->
+     let ctx =
+       if has_linkage then
+         let new_ident = {id_type=id_type; orig_name=ident_name;
+                          unique_name=ident_name;
+                          has_linkage=has_linkage; args=opt_args} in
+         let identifiers = StringMap.add ident_name new_ident symbol_map in         
+         { ctx with global_identifiers=identifiers}
+       else
+         ctx in
+     let unique_name = Printf.sprintf "%s.%d" ident_name ctx.global_counter in
+     let new_ident = {id_type=id_type;
+                      orig_name=ident_name;
+                      unique_name=unique_name;
+                      has_linkage=has_linkage; args=opt_args} in
+     let identifiers = StringMap.add ident_name new_ident
+                         (List.hd ctx.identifier_stack) in
+     ({ctx with global_counter=ctx.global_counter+1;
+                identifier_stack=
+                  identifiers :: List.tl ctx.identifier_stack },
+      new_ident)
+       
 let curr_block_id ctx =
   match ctx.block_stack with
   | [] -> None
@@ -161,7 +189,7 @@ let enter_block ctx block_type =
                                  block_prefix ctx.global_counter in
   ({ ctx with block_stack=(block_name,block_type) :: ctx.block_stack;
               global_counter=ctx.global_counter+1;
-              func_vars_stack=StringMap.empty :: ctx.func_vars_stack },
+              identifier_stack=StringMap.empty :: ctx.identifier_stack },
    block_name)
 
 let enter_statements_block ctx =
@@ -174,10 +202,10 @@ let leave_block ctx =
   | BlockSwitch ->
     { ctx with block_stack=List.tl ctx.block_stack;
                switch_stack=List.tl ctx.switch_stack;
-               func_vars_stack=List.tl ctx.func_vars_stack}
+               identifier_stack=List.tl ctx.identifier_stack}
   | _ ->
     { ctx with block_stack=List.tl ctx.block_stack;
-               func_vars_stack=List.tl ctx.func_vars_stack}
+               identifier_stack=List.tl ctx.identifier_stack}
 
 let enter_func ctx func_name =
   { ctx with func_name=func_name }

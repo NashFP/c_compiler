@@ -481,7 +481,7 @@ and parse_expr_list tokens args =
         (match peek tokens with
         | ((COMMA, _), tokens) ->
           parse_expr_list tokens (expr :: args)
-        | ((RPAREN, _), _) -> (List.rev args, tokens)
+        | ((RPAREN, _), _) -> (List.rev (expr::args), tokens)
         | ((tok, loc), _) ->
           fail_at loc
             (Printf.sprintf "Unexpected token in function call: %s"
