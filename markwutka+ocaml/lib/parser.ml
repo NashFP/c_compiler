@@ -407,7 +407,10 @@ and parse_declaration tokens =
   let (var_name, _, tokens) = expect_identifier tokens in
   match peek tokens with
   | ((LPAREN, _), tokens) ->
-     let (args, tokens) = parse_arg_list tokens [] in
+    let (args, tokens) =
+      (match peek tokens with
+       | ((VOID,_), tokens) -> ([], tokens)
+       | _ -> parse_arg_list tokens []) in
      let tokens = expect RPAREN tokens in
      let tokens = expect SEMI tokens in
      (FunDecl (loc, var_name, args, None), tokens)
@@ -450,55 +453,69 @@ and parse_for_init tokens =
     let (expr, tokens) = parse_optional_expr tokens SEMI in
     (InitExpr expr, tokens)
 and parse_arg_list tokens args =
-    match peek tokens with
-    | ((RPAREN,_), _) -> (args, tokens)
-    | ((INT, _), tokens) ->
-       let (ident, _, tokens) = expect_identifier tokens in
-       let args = ident :: args in
-       (match peek tokens with
-        | ((COMMA,_), tokens) -> parse_arg_list tokens args
-        | ((RPAREN,_), _) -> (List.rev args, tokens)
-        | ((tok,loc),_) -> fail_at loc
-                             (Printf.sprintf "Unexpected token: %s"
-                                (str_of_token tok)))
-    | ((tok,loc),_) -> fail_at loc
-                         (Printf.sprintf "Unexpected token: %s"
-                            (str_of_token tok))
+  match peek tokens with
+  | ((RPAREN,_), _) -> (args, tokens)
+  | _ ->
+    let rec parse_arg_list tokens args =
+      (match peek tokens with
+       | ((INT, _), tokens) ->
+         let (ident, _, tokens) = expect_identifier tokens in
+         let args = ident :: args in
+         (match peek tokens with
+          | ((COMMA,_), tokens) -> parse_arg_list tokens args
+          | ((RPAREN,_), _) -> (List.rev args, tokens)
+          | ((tok,loc),_) -> fail_at loc
+                               (Printf.sprintf "Unexpected token: %s"
+                                  (str_of_token tok)))
+       | ((tok,loc),_) -> fail_at loc
+                            (Printf.sprintf "Unexpected token: %s"
+                               (str_of_token tok)))
+    in parse_arg_list tokens args
 and parse_expr_list tokens args =
-  let rec parse_expr_list tokens args =
+  let parse_expr_list tokens args =
     match peek tokens with
     | ((RPAREN, _), _) -> (List.rev args, tokens)
     | _ ->
-       let (expr, tokens) = parse_expr tokens 0 in
-       match peek tokens with
-       | ((COMMA, _), tokens) ->
+      let rec parse_expr_list tokens args =
+        let (expr, tokens) = parse_expr tokens 0 in
+        (match peek tokens with
+        | ((COMMA, _), tokens) ->
           parse_expr_list tokens (expr :: args)
-       | ((RPAREN, _), _) -> (List.rev args, tokens)
-       | ((tok, loc), _) ->
+        | ((RPAREN, _), _) -> (List.rev args, tokens)
+        | ((tok, loc), _) ->
           fail_at loc
             (Printf.sprintf "Unexpected token in function call: %s"
-               (str_of_token tok))
+               (str_of_token tok)))
+      in
+      parse_expr_list tokens args
   in
   parse_expr_list tokens args
                                
 let parse_functions tokens =
   let rec parse_functions tokens funcs =
     match peek tokens with
-    | ((EOF,_), tokens) -> (List.rev funcs, tokens)
+    | ((EOF,_), _) -> (List.rev funcs, tokens)
     | _ ->
        let (_, loc, tokens) = expect_and_get INT tokens in
-       let (ident, _, tokens) = expect_and_get (IDENTIFIER "") tokens in
+       let (ident, _, tokens) = expect_identifier tokens in
        let tokens = expect LPAREN tokens in
        let (params, tokens) =
          (match peek tokens with
           | ((VOID,_), tokens) -> ([], tokens)
           | _ -> parse_arg_list tokens []) in
        let tokens = expect RPAREN tokens in
-       let tokens = expect LBRACE tokens in
-       let (stmts, tokens) = parse_block_items tokens in
-       let tokens = expect RBRACE tokens in
-       parse_functions tokens 
-         ((loc, ident_str ident, params, Some stmts) :: funcs)
+       (match peek tokens with
+        | ((SEMI, _), tokens) ->
+          (parse_functions tokens ((loc, ident, params, None) :: funcs))
+        | ((LBRACE, _), tokens) ->
+          let (stmts, tokens) = parse_block_items tokens in
+          let tokens = expect RBRACE tokens in
+          parse_functions tokens 
+            ((loc, ident, params, Some stmts) :: funcs)
+        | ((tok,loc),_) ->
+          fail_at loc (Printf.sprintf "Unexpected token %s"
+                         (str_of_token tok)))
+                             
   in
   parse_functions tokens []
 
