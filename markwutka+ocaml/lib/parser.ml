@@ -19,6 +19,8 @@ let str_of_token = function
   | SWITCH -> "switch"
   | CASE -> "case"
   | DEFAULT -> "default"
+  | STATIC -> "static"
+  | EXTERN -> "extern"
   | LPAREN -> "("
   | RPAREN -> ")"
   | LBRACE -> "{"
@@ -249,6 +251,45 @@ let parse_binop tokens =
            (Printf.sprintf "Unexpected binary operator %s"
               (str_of_token tok))
 
+let parse_type_spec tokens =
+  Printf.printf "Parsing type spec\n";
+  let first_loc opt_loc loc =
+    match opt_loc with
+    | Some _ -> opt_loc
+    | None -> Some loc in
+  let rec parse_type_spec1 tokens type_spec opt_loc got_static got_extern =
+    match peek tokens with
+    | ((INT, loc), tokens) ->
+       (Printf.printf "Got int\n";
+       parse_type_spec1 tokens (Some Int) (first_loc opt_loc loc)
+         got_static got_extern)
+    | ((EXTERN, loc), tokens) ->
+       (Printf.printf "Got extern\n";
+       parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
+         got_static true)
+    | ((STATIC, loc), tokens) ->
+       (Printf.printf "Got static\n";
+        parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
+         true got_extern)
+    | ((tok,_),_)  -> (Printf.printf "Finished parsing type spec at token %s\n"
+           (str_of_token tok);
+            ((type_spec, opt_loc, got_static, got_extern), tokens))
+  in
+  let ((type_spec, opt_loc, got_static, got_extern), tokens) =
+    parse_type_spec1 tokens None None false false in
+  let loc = Option.get opt_loc in
+  if Option.is_none type_spec then
+    fail_at loc "No type specified in declaration"
+  else
+    let storage_class =
+      if got_static then
+        Some Static
+      else if got_extern then
+        Some Extern
+      else
+        None in
+    ((Option.get type_spec, loc, storage_class), tokens)
+
 let rec parse_factor tokens =
   let (factor_exp, tokens) =
     let ((tok,loc), next_tokens) = peek tokens in
@@ -403,30 +444,41 @@ and parse_statement tokens =
                             (Expression (loc, expr), tokens)
 
 and parse_declaration tokens =
-  let (_, loc, tokens) = expect_and_get INT tokens in
-  let (var_name, _, tokens) = expect_identifier tokens in
-  match peek tokens with
-  | ((LPAREN, _), tokens) ->
-    let (args, tokens) =
-      (match peek tokens with
-       | ((VOID,_), tokens) -> ([], tokens)
-       | _ -> parse_arg_list tokens []) in
-     let tokens = expect RPAREN tokens in
-     let tokens = expect SEMI tokens in
-     (FunDecl (loc, var_name, args, None), tokens)
-  | ((EQUAL,_), tokens) ->
-     let (init_exp, tokens) = parse_expr tokens 0 in
-     let tokens = expect SEMI tokens in
-     (VarDecl (loc, var_name, Some init_exp), tokens)
-  | ((SEMI,_), tokens) ->
-     (VarDecl (loc, var_name, None), tokens)
-  | ((other,loc), _) ->
-     fail_at loc
-       (Printf.sprintf "Invalid declaration, expected ';', but found %s"
-          (str_of_token other))
+    let ((_type_spec, loc, storage_class), tokens) = parse_type_spec tokens in
+    let (var_name, _, tokens) = expect_identifier tokens in
+    match peek tokens with
+    | ((LPAREN, _), tokens) ->
+       let (args, tokens) =
+         (match peek tokens with
+          | ((VOID,_), tokens) -> ([], tokens)
+          | _ -> parse_arg_list tokens []) in
+       let tokens = expect RPAREN tokens in
+       (match peek tokens with
+        | ((LBRACE, _), tokens) ->
+           let (stmts, tokens) = parse_block_items tokens in
+           let tokens = expect RBRACE tokens in
+           (F (FunDecl (loc, var_name, storage_class, args, Some stmts)),
+            tokens)
+        | ((SEMI, _), tokens) ->
+           (F (FunDecl (loc, var_name, storage_class, args, None)), tokens)
+        | ((tok,loc), _) ->
+           fail_at loc (Printf.sprintf "Expected { or ;, but found %s"
+                        (str_of_token tok)))
+    | ((EQUAL,_), tokens) ->
+       let (init_exp, tokens) = parse_expr tokens 0 in
+       let tokens = expect SEMI tokens in
+       (V (VarDecl (loc, var_name, storage_class, Some init_exp)), tokens)
+    | ((SEMI,_), tokens) ->
+       (V (VarDecl (loc, var_name, storage_class, None)), tokens)
+    | ((other,loc), _) ->
+       fail_at loc
+         (Printf.sprintf "Invalid declaration, expected ';', but found %s"
+            (str_of_token other))
 and is_declaration tokens =
   match peek tokens with
   | ((INT,_),_) -> true
+  | ((STATIC,_),_) -> true
+  | ((EXTERN,_),_) -> true
   | _ -> false
 and parse_block_items tokens =
   let rec parse_block_items_1 tokens items =
@@ -446,9 +498,9 @@ and parse_block_items tokens =
 and parse_for_init tokens =
   if is_declaration tokens then
     match parse_declaration tokens with
-    | (FunDecl (loc, _, _, _), _) ->
+    | (F (FunDecl (loc, _, _, _, _)), _) ->
        fail_at loc "Cannot declare a function in a for initialization"
-    | (VarDecl decl, tokens) -> (InitDecl decl, tokens)
+    | (V decl, tokens) -> (InitDecl decl, tokens)
   else
     let (expr, tokens) = parse_optional_expr tokens SEMI in
     (InitExpr expr, tokens)
@@ -491,35 +543,16 @@ and parse_expr_list tokens args =
   in
   parse_expr_list tokens args
                                
-let parse_functions tokens =
-  let rec parse_functions tokens funcs =
+let parse_top_level tokens =
+  let rec parse_top_level tokens decls =
     match peek tokens with
-    | ((EOF,_), _) -> (List.rev funcs, tokens)
+    | ((EOF,_), _) -> (List.rev decls, tokens)
     | _ ->
-       let (_, loc, tokens) = expect_and_get INT tokens in
-       let (ident, _, tokens) = expect_identifier tokens in
-       let tokens = expect LPAREN tokens in
-       let (params, tokens) =
-         (match peek tokens with
-          | ((VOID,_), tokens) -> ([], tokens)
-          | _ -> parse_arg_list tokens []) in
-       let tokens = expect RPAREN tokens in
-       (match peek tokens with
-        | ((SEMI, _), tokens) ->
-          (parse_functions tokens ((loc, ident, params, None) :: funcs))
-        | ((LBRACE, _), tokens) ->
-          let (stmts, tokens) = parse_block_items tokens in
-          let tokens = expect RBRACE tokens in
-          parse_functions tokens 
-            ((loc, ident, params, Some stmts) :: funcs)
-        | ((tok,loc),_) ->
-          fail_at loc (Printf.sprintf "Unexpected token %s"
-                         (str_of_token tok)))
-                             
+       let (decl, tokens) = parse_declaration tokens in
+       parse_top_level tokens (decl :: decls)
   in
-  parse_functions tokens []
-
+  parse_top_level tokens []
 let parse_program tokens =
-  let (funcs, tokens) = parse_functions tokens in
+  let (funcs, tokens) = parse_top_level tokens in
   let _ = expect EOF tokens in
   Program funcs

@@ -3,7 +3,9 @@
    line number, and column in order to report errors. *)
 
 module StringMap = Map.Make(String)
-    
+
+type storage_class_type = Static | Extern
+type type_type = Int
 type unary_op = Complement | Negate | Not | PreInc | PreDec | PostInc | PostDec 
 type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
                  ShiftRight | BitwiseAnd | BitwiseOr | BitwiseXor |
@@ -44,12 +46,14 @@ and statement_type = Return of loc_type * exp_type
                               exp_type option * statement_type *
                                 string option
                    | Null
-and function_decl_type = loc_type * string * string list *
-                           (block_item list) option
-and var_decl_type = loc_type * string * exp_type option
-and program_type = Program of function_decl_type list
-and declaration_type = FunDecl of function_decl_type
-                     | VarDecl of var_decl_type
+and function_decl_type = FunDecl of loc_type * string *
+                                   storage_class_type option *
+                           string list * (block_item list) option
+and var_decl_type = VarDecl of loc_type * string * storage_class_type option
+                    * exp_type option
+and program_type = Program of declaration_type list
+and declaration_type = F of function_decl_type
+                     | V of var_decl_type
 and for_init_type = InitDecl of var_decl_type | InitExpr of exp_type option
 and block_item = S of statement_type | D of declaration_type
 and block_type = Block of block_item list

@@ -317,7 +317,8 @@ let rec generate_tacky_stmt ctx instrs stmt =
     (ctx, instrs <:: Label (tag_label label "break"))
   | C_ast.Null -> (ctx, instrs)
 
-and generate_tacky_var_decl ctx instrs (_, var_name, expr) =
+and generate_tacky_var_decl ctx instrs (VarDecl (_, var_name,
+                                                 _storage_class, expr)) =
   match expr with
   | None -> (ctx, instrs)
   | Some expr ->
@@ -326,8 +327,8 @@ and generate_tacky_var_decl ctx instrs (_, var_name, expr) =
 
 and generate_tacky_declaration ctx instrs decl =
   match decl with
-  | C_ast.FunDecl _ -> (ctx, instrs)
-  | C_ast.VarDecl decl -> generate_tacky_var_decl ctx instrs decl
+  | C_ast.F (C_ast.FunDecl _) -> (ctx, instrs)
+  | C_ast.V decl -> generate_tacky_var_decl ctx instrs decl
 
 and generate_block_item (ctx,instrs) item =
   match item with
@@ -336,7 +337,8 @@ and generate_block_item (ctx,instrs) item =
 
 and generate_block_items ctx instrs block_items =
   List.fold_left generate_block_item (ctx,instrs) block_items
-let generate_tacky_function ctx (_, name, args, maybe_block_items) =
+let generate_tacky_function ctx (C_ast.FunDecl (_, name, _storage_class,
+                                 args, maybe_block_items)) =
   match maybe_block_items with
   | None -> failwith "Tried to generate tacky for external function"
   | Some block_items ->
@@ -348,7 +350,7 @@ let generate_tacky_function ctx (_, name, args, maybe_block_items) =
                      List.rev (instrs <:: Return (ConstantInt 0L))))
 
 let generate_tacky_program ctx (C_ast.Program func_types) =
-  let is_full_func (_, _, _, maybe_block_items) =
+  let is_full_func (C_ast.FunDecl (_, _, _, _, maybe_block_items)) =
     Option.is_some maybe_block_items in
   let func_types = List.filter is_full_func func_types in
   let (ctx, func_defs) = map_with_ctx generate_tacky_function ctx func_types in
