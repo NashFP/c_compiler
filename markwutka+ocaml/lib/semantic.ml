@@ -83,11 +83,11 @@ let rec resolve_expr ctx expr =
      | None -> fail_at loc (Printf.sprintf "Undeclared function %s"
                               name)
      | Some ident ->
-        (match ident.args with
-         | None -> fail_at loc
+        (match ident.id_type with
+         | IdVar -> fail_at loc
                      (Printf.sprintf "Function call on non function %s"
                               name)
-         | Some declared_args ->
+         | IdFunc declared_args | IdFuncForward declared_args ->
             if List.length args != List.length declared_args then
               fail_at loc
                 (Printf.sprintf
@@ -170,7 +170,7 @@ and resolve_statement ctx stmt create_block =
   | Null -> (ctx, stmt)
 and resolve_var_decl ctx (loc, var_name, maybe_expr) =
   let (ctx, unique_var) = register_identifier ctx loc var_name
-                            IdVar false None in
+                            IdVar false in
      (match maybe_expr with
      | Some var_exp ->
         let (ctx, var_exp) = resolve_expr ctx var_exp in
@@ -179,8 +179,8 @@ and resolve_var_decl ctx (loc, var_name, maybe_expr) =
 and resolve_declaration ctx decl =
   match decl with
   | FunDecl (loc, name, args, _) ->
-     let (ctx, _) = register_identifier ctx loc name IdFuncForward
-                      true (Some args) in
+     let (ctx, _) = register_identifier ctx loc name
+                      (IdFuncForward args) true in
      (ctx, decl)
   | VarDecl decl ->
      let (ctx, decl) = resolve_var_decl ctx decl in
@@ -195,30 +195,30 @@ and resolve_block_items ctx block_items =
   map_with_ctx resolve_block_item ctx block_items
 and resolve_function ctx (loc, func_name, args, maybe_block_items) =
   let uniq_arg_name ctx arg =
-    let (ctx, arg) = register_identifier ctx loc arg IdVar false None in
+    let (ctx, arg) = register_identifier ctx loc arg IdVar false in
     (ctx, arg.unique_name) in
   let check_function_defined ctx =
     match lookup_identifier ctx func_name with
     | (None, _) -> ctx
     | (Some ident, _) ->
        (match ident.id_type with
-        | IdFuncForward ->
-           if (List.length (Option.get ident.args)) !=
+        | IdFuncForward prev_args ->
+           if (List.length prev_args) !=
                 List.length args then
              fail_at loc
                (Printf.sprintf
                   "Function %s has %d arguments, previously declared with %d"
                   func_name (List.length args)
-                  (List.length (Option.get ident.args)))
+                  (List.length prev_args))
            else
              ctx
         | _ ->
            fail_at loc "Duplicate function definition") in
   let ctx = check_function_defined ctx in
-  let func_id_type = if Option.is_some maybe_block_items then IdFunc
-                     else IdFuncForward in
+  let func_id_type = if Option.is_some maybe_block_items then (IdFunc args)
+                     else (IdFuncForward args) in
   let (ctx, _) = register_identifier ctx loc func_name
-                   func_id_type true (Some args) in
+                   func_id_type true in
   let ctx = enter_statements_block ctx in
   let (ctx, args) = map_with_ctx uniq_arg_name ctx args in
   let ctx = enter_func ctx func_name in

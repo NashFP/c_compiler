@@ -1,10 +1,12 @@
 module StringMap = Map.Make(String)
 module Int64Map = Map.Make(Int64)
 
-type identifier_id_type = IdVar | IdFuncForward | IdFunc
+type identifier_id_type = IdVar
+                        | IdFuncForward of string list
+                        | IdFunc of string list
 type identifier_type = { id_type : identifier_id_type;
                          orig_name: string; unique_name: string;
-                       has_linkage: bool; args: (string list) option}
+                       has_linkage: bool}
 
 type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch |
                   BlockStatements
@@ -72,16 +74,24 @@ let lookup_identifier ctx ident =
   in
   lookup_ident_1 ctx.identifier_stack true
 
-let compare_args args1 args2 =
-  (List.length args1) == (List.length args2)
+let compare_id_type_decls id1 id2 =
+  match (id1, id2) with
+  | (IdVar, IdVar) -> false
+  | (IdFunc args1, IdFunc args2) -> List.length args1 == List.length args2
+  | (IdFunc args1, IdFuncForward args2) ->
+     List.length args1 == List.length args2
+  | (IdFuncForward args1, IdFunc args2) ->
+     List.length args1 == List.length args2
+  | (IdFuncForward args1, IdFuncForward args2) ->
+     List.length args1 == List.length args2
+  | _ -> false
 
-let register_identifier ctx loc ident_name id_type has_linkage opt_args =
+let register_identifier ctx loc ident_name id_type has_linkage =
   let symbol_map = if has_linkage then ctx.global_identifiers else
                   List.hd ctx.identifier_stack in
   match StringMap.find_opt ident_name symbol_map with
   | Some ident ->
-     if not (Option.equal compare_args opt_args ident.args) ||
-          (ident.id_type == IdVar && id_type == IdVar) then
+     if not (compare_id_type_decls id_type ident.id_type) then
        fail_at loc (Printf.sprintf "Duplicate identifier declared: %s"
                       ident_name)
      else
@@ -91,7 +101,7 @@ let register_identifier ctx loc ident_name id_type has_linkage opt_args =
        if has_linkage then
          let new_ident = {id_type=id_type; orig_name=ident_name;
                           unique_name=ident_name;
-                          has_linkage=has_linkage; args=opt_args} in
+                          has_linkage=has_linkage;} in
          let identifiers = StringMap.add ident_name new_ident symbol_map in         
          { ctx with global_identifiers=identifiers}
        else
@@ -100,7 +110,7 @@ let register_identifier ctx loc ident_name id_type has_linkage opt_args =
      let new_ident = {id_type=id_type;
                       orig_name=ident_name;
                       unique_name=unique_name;
-                      has_linkage=has_linkage; args=opt_args} in
+                      has_linkage=has_linkage} in
      let identifiers = StringMap.add ident_name new_ident
                          (List.hd ctx.identifier_stack) in
      ({ctx with global_counter=ctx.global_counter+1;

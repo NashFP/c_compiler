@@ -7,16 +7,18 @@ type binary_operator = Add | Subtract | Multiply | Divide | Remainder |
                        Equal | NotEqual | LessThan | LessOrEqual |
                        GreaterThan | GreaterOrEqual | And | Or
 type val_type = ConstantInt of int64 | Var of string
-type instruction = Return of val_type |
-                   Unary of unary_operator * val_type * val_type |
-                   Binary of binary_operator * val_type * val_type * val_type |
-                   Copy of val_type * val_type |
-                   Jump of string |
-                   JumpIfZero of val_type * string |
-                   JumpIfNotZero of val_type * string |
-                   Label of string
+type instruction = Return of val_type
+                 | Unary of unary_operator * val_type * val_type
+                 | Binary of binary_operator * val_type * val_type * val_type
+                 | Copy of val_type * val_type
+                 | Jump of string
+                 | JumpIfZero of val_type * string
+                 | JumpIfNotZero of val_type * string
+                 | Label of string
+                 | FunctionCall of string * val_type list * val_type
                  
-type function_definition = Function of string * instruction list
+type function_definition = Function of string * val_type list *
+                                         instruction list
 type program_type = Program of function_definition list
 type function_context = { func_name: string; func_next_temp_num: int }
 
@@ -166,8 +168,19 @@ let rec generate_tacky_expr ctx instrs expr =
        generate_tacky_expr ctx instrs false_expr in
      (ctx, instrs <:: Copy (false_expr, dst) <:: Label end_label_name,
       dst)
-  | C_ast.FunctionCall _ ->
-     failwith "Function call not implemented"
+  | C_ast.FunctionCall (_, name, args) ->
+     generate_func_call ctx instrs name args
+and generate_func_call ctx instrs name args =
+  let generate_arg (ctx,instrs,dsts) arg =
+    let (ctx, instrs, dst) = generate_tacky_expr ctx instrs arg in
+    (ctx, instrs, dst :: dsts)
+  in
+  let (ctx, instrs, dsts) = List.fold_left generate_arg
+                              (ctx, instrs, []) args in
+  let dsts = List.rev dsts in
+  let (ctx, dst_name) = make_func_temporary ctx in
+  let dst = Var dst_name in
+  (ctx, instrs <:: FunctionCall (name, dsts, dst), dst)    
 
 let rec generate_tacky_stmt ctx instrs stmt =
   match stmt with
@@ -323,14 +336,16 @@ and generate_block_item (ctx,instrs) item =
 
 and generate_block_items ctx instrs block_items =
   List.fold_left generate_block_item (ctx,instrs) block_items
-let generate_tacky_function ctx (_, name, _args, maybe_block_items) =
+let generate_tacky_function ctx (_, name, args, maybe_block_items) =
   match maybe_block_items with
   | None -> failwith "Tried to generate tacky for external function"
   | Some block_items ->
-      let ctx = enter_func ctx name in
-      let (ctx, instrs) = generate_block_items ctx [] block_items in
-      let ctx = leave_func ctx in
-      (ctx, Function (name, List.rev (instrs <:: Return (ConstantInt 0L))))
+     let args = List.map (fun name -> Var name) args in     
+     let ctx = enter_func ctx name in
+     let (ctx, instrs) = generate_block_items ctx [] block_items in
+     let ctx = leave_func ctx in
+     (ctx, Function (name, args,
+                     List.rev (instrs <:: Return (ConstantInt 0L))))
 
 let generate_tacky_program ctx (C_ast.Program func_types) =
   let is_full_func (_, _, _, maybe_block_items) =

@@ -3,6 +3,12 @@
 # According to the book, if no option is specified, the
 # code should be compiled. This script sets the mode to
 # --compile if none of the ones in the book are used.
+COMPILE_NO_LINK=""
+if [ "$1" = "-c" ]; then
+  COMPILE_NO_LINK="-c"
+  shift
+fi
+
 MODE="--compile"
 if [ "$1" = "--lex" ]; then
   MODE="--lex"
@@ -76,7 +82,11 @@ if [ "$MODE" = "--compile" ]; then
     mv $ASSEMBLED "__astemp"
     sed -e "/@progbits/d" < __astemp | sed -e "s/.globl main/.globl _main/" | sed -e "s/^main:/_main:/" > $ASSEMBLED
   fi
-  gcc $ASSEMBLED -o $BASE
+  if [ "$COMPILE_NO_LINK" = "-c" ]; then
+    gcc -c $ASSEMBLED -o $BASE".o"
+  else
+    gcc $ASSEMBLED -o $BASE
+  fi
   ERR=$?
   rm $ASSEMBLED
   exit $ERR
