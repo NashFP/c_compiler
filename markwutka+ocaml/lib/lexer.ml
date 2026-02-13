@@ -55,6 +55,7 @@ type token_type =
   | CARATEQUAL
   | QUESTION
   | COLON
+  | COMMA
   | EOF
 
 type lexer_type = { lexer_lines: string list;
@@ -292,6 +293,8 @@ let tokenize lexer =
         tokenize_1 (skip lexer) ((QUESTION, loc) :: tokens)
       else if ch == ':' then
         tokenize_1 (skip lexer) ((COLON, loc) :: tokens)
+      else if ch == ',' then
+        tokenize_1 (skip lexer) ((COMMA, loc) :: tokens)
       else
         (Printf.printf "%s, line %d, column %d: Unexpected token %c\n"
            (Filename.basename lexer.lexer_filename)

@@ -17,7 +17,7 @@ type instruction = Return of val_type |
                    Label of string
                  
 type function_definition = Function of string * instruction list
-type program_type = Program of function_definition
+type program_type = Program of function_definition list
 type function_context = { func_name: string; func_next_temp_num: int }
 
 let (<::) lst item = item :: lst
@@ -165,8 +165,9 @@ let rec generate_tacky_expr ctx instrs expr =
      let (ctx, instrs, false_expr) =
        generate_tacky_expr ctx instrs false_expr in
      (ctx, instrs <:: Copy (false_expr, dst) <:: Label end_label_name,
-      dst)     
-
+      dst)
+  | C_ast.FunctionCall _ ->
+     failwith "Function call not implemented"
 
 let rec generate_tacky_stmt ctx instrs stmt =
   match stmt with
@@ -231,7 +232,7 @@ let rec generate_tacky_stmt ctx instrs stmt =
   | C_ast.For (_, init, test_expr, post_expr, stmt, label) ->
      let (ctx, instrs) =
        (match init with
-        | InitDecl decl -> generate_tacky_declaration ctx instrs decl
+        | InitDecl decl -> generate_tacky_var_decl ctx instrs decl
         | InitExpr (Some expr) ->
            let (ctx, instrs, _) = generate_tacky_expr ctx instrs expr in
            (ctx, instrs)
@@ -303,13 +304,17 @@ let rec generate_tacky_stmt ctx instrs stmt =
     (ctx, instrs <:: Label (tag_label label "break"))
   | C_ast.Null -> (ctx, instrs)
 
-and generate_tacky_declaration ctx instrs
-      (C_ast.Declaration (_, var_name, expr)) =
+and generate_tacky_var_decl ctx instrs (_, var_name, expr) =
   match expr with
   | None -> (ctx, instrs)
   | Some expr ->
      let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
      (ctx, instrs <:: Copy (dst, Var var_name))
+
+and generate_tacky_declaration ctx instrs decl =
+  match decl with
+  | C_ast.FunDecl _ -> (ctx, instrs)
+  | C_ast.VarDecl decl -> generate_tacky_var_decl ctx instrs decl
 
 and generate_block_item (ctx,instrs) item =
   match item with
@@ -318,12 +323,18 @@ and generate_block_item (ctx,instrs) item =
 
 and generate_block_items ctx instrs block_items =
   List.fold_left generate_block_item (ctx,instrs) block_items
-let generate_tacky_function ctx (C_ast.FunctionDef (_, name, block_items)) =
-  let ctx = enter_func ctx name in
-  let (ctx, instrs) = generate_block_items ctx [] block_items in
-  let ctx = leave_func ctx in
-  (ctx, Function (name, List.rev (instrs <:: Return (ConstantInt 0L))))
+let generate_tacky_function ctx (_, name, _args, maybe_block_items) =
+  match maybe_block_items with
+  | None -> failwith "Tried to generate tacky for external function"
+  | Some block_items ->
+      let ctx = enter_func ctx name in
+      let (ctx, instrs) = generate_block_items ctx [] block_items in
+      let ctx = leave_func ctx in
+      (ctx, Function (name, List.rev (instrs <:: Return (ConstantInt 0L))))
 
-let generate_tacky_program ctx (C_ast.Program func_type) =
-  let (ctx, func_def) = generate_tacky_function ctx func_type in
-  (ctx, Program func_def)
+let generate_tacky_program ctx (C_ast.Program func_types) =
+  let is_full_func (_, _, _, maybe_block_items) =
+    Option.is_some maybe_block_items in
+  let func_types = List.filter is_full_func func_types in
+  let (ctx, func_defs) = map_with_ctx generate_tacky_function ctx func_types in
+  (ctx, Program func_defs)

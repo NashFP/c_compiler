@@ -24,8 +24,8 @@ type instruction =
   | Label of string
   | Ret
     
-type function_definition = Function of string * instruction list
-type program_type = Program of function_definition
+type function_definition = Function of string * instruction list * int
+type program_type = Program of function_definition list
 
 let (<::) lst item = item :: lst
                      
@@ -142,10 +142,10 @@ let generate_asm_instr instrs instr =
   
 let generate_asm_func (Tacky.Function (name, instrs)) =
   let instrs_rev = List.fold_left generate_asm_instr [] instrs in
-  Function (name, List.rev instrs_rev)
+  Function (name, List.rev instrs_rev, 0)
 
-let generate_asm_program (Tacky.Program func_def) =
-  Program (generate_asm_func func_def)
+let generate_asm_program (Tacky.Program func_defs) =
+  Program (List.map generate_asm_func func_defs)
 
 let pseudo_to_stack var_map stack_size s =
   match StringMap.find_opt s var_map with
@@ -195,14 +195,13 @@ let replace_pseudo (var_map, stack_size, instrs) instr =
     (var_map, stack_size, SetCC (cc, new_src) :: instrs)
   | rest -> (var_map, stack_size, rest :: instrs)
 
-let replace_pseudo_func (Function (name, instrs)) =
+let replace_pseudo_func (Function (name, instrs,_)) =
   let (_, stack_size, new_instrs) =
     List.fold_left replace_pseudo (StringMap.empty, 0, []) instrs in
-  (stack_size, Function (name, List.rev new_instrs))
+  Function (name, List.rev new_instrs, stack_size)
 
-let replace_pseudo_program (Program func_def) =
-  let (stack_size, new_func) = replace_pseudo_func func_def in
-  (stack_size, Program new_func)
+let replace_pseudo_program (Program func_defs) =  
+   Program (List.map replace_pseudo_func func_defs)
 
 let fixup_instr instrs instr =
   match instr with
@@ -260,12 +259,13 @@ let fixup_instr instrs instr =
     <:: Cmp (src, Reg R11)
   | rest -> instrs <:: rest
 
-let fixup_func (Function (name, instrs)) stack_size =
+let fixup_func (Function (name, instrs, stack_size)) =
   let new_instrs = List.fold_left fixup_instr [] instrs in
-  Function (name, (AllocateStack (-stack_size) :: List.rev new_instrs))
+  Function (name, (AllocateStack (-stack_size) :: List.rev new_instrs),
+            stack_size)
 
-let fixup_program (Program func_def) stack_size =
-  Program (fixup_func func_def stack_size)
+let fixup_program (Program func_def)  =
+  Program (List.map fixup_func func_def)
 
 let emit_operand operand =
   match operand with
@@ -332,13 +332,13 @@ let emit_instr instr =
   | Label str -> (Printf.sprintf ".L%s:\n" str)
                        
     
-let emit_func (Function (name, instrs)) =
+let emit_func (Function (name, instrs,_)) =
   (Printf.sprintf "    .globl %s\n" name)::
   (Printf.sprintf "%s:\n" name)::
    "    pushq    %rbp\n"::
    "    movq     %rsp, %rbp\n"::
   List.map emit_instr instrs
 
-let emit_program (Program func_def) =
-  let func_lines = emit_func func_def in
+let emit_program (Program func_defs) =
+  let func_lines = List.concat_map emit_func func_defs in
   func_lines @ ["    .section .note.GNU-stack,\"\",@progbits\n"]

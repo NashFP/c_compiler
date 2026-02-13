@@ -68,6 +68,9 @@ let rec resolve_expr ctx expr =
      let (ctx, true_expr) = resolve_expr ctx true_expr in
      let (ctx, false_expr) = resolve_expr ctx false_expr in
      (ctx, Condition (loc, test_expr, true_expr, false_expr))
+  | FunctionCall (loc, name, args) ->
+     let (ctx, args) = map_with_ctx resolve_expr ctx args in
+     (ctx, FunctionCall (loc, name, args))
 and resolve_optional_expr ctx maybe_expr =
   match maybe_expr with
   | None -> (ctx, None)
@@ -118,7 +121,7 @@ and resolve_statement ctx stmt create_block =
      let (ctx, init) =
        match init with
        | InitDecl decl ->
-          let (ctx, decl) = resolve_declaration ctx decl in
+          let (ctx, decl) = resolve_var_decl ctx decl in
           (ctx, InitDecl decl)
        | InitExpr expr ->
           let (ctx, expr) = resolve_optional_expr ctx expr in
@@ -140,31 +143,43 @@ and resolve_statement ctx stmt create_block =
   | Default _ -> (ctx, stmt)
   | Goto _ -> (ctx, stmt)
   | Null -> (ctx, stmt)
-and resolve_declaration ctx (Declaration (loc, var_name, var_exp)) =
-  let (ctx, unique_var) = make_unique_var ctx loc var_name in
-  match var_exp with
-  | Some var_exp ->
-     let (ctx, var_exp) = resolve_expr ctx var_exp in
-     (ctx, Declaration (loc, unique_var.unique_var_name, Some var_exp))
-  | None -> (ctx, Declaration (loc, unique_var.unique_var_name, None))
-and resolve_block_item (ctx, block_items) block_item =
+and resolve_var_decl ctx (loc, var_name, maybe_expr) =
+     let (ctx, unique_var) = make_unique_var ctx loc var_name in
+     (match maybe_expr with
+     | Some var_exp ->
+        let (ctx, var_exp) = resolve_expr ctx var_exp in
+        (ctx, (loc, unique_var.unique_var_name, Some var_exp))
+     | None -> (ctx,(loc, unique_var.unique_var_name, None)))  
+and resolve_declaration ctx decl =
+  match decl with
+  | FunDecl _ ->
+     (ctx, decl)
+  | VarDecl decl ->
+     let (ctx, decl) = resolve_var_decl ctx decl in
+     (ctx, VarDecl decl)
+and resolve_block_item ctx block_item =
   match block_item with
   | D decl -> let (ctx, decl) = resolve_declaration ctx decl in
-              (ctx, (D decl) :: block_items)
+              (ctx, D decl)
   | S stmt -> let (ctx, stmt) = resolve_statement ctx stmt true in
-              (ctx, (S stmt) :: block_items)
+              (ctx, S stmt)
 and resolve_block_items ctx block_items =
-  let (ctx, block_items) =
-    List.fold_left resolve_block_item (ctx,[]) block_items in
-  (ctx, List.rev block_items)
-and resolve_function ctx (FunctionDef (loc, func_name, block_items)) =
+  map_with_ctx resolve_block_item ctx block_items
+and resolve_function ctx (loc, func_name, args, maybe_block_items) =
+  let uniq_arg_name ctx arg =
+    let (ctx, arg) = make_unique_var ctx loc arg in
+    (ctx, arg.unique_var_name) in
+  let (ctx, args) = map_with_ctx uniq_arg_name ctx args in
   let ctx = enter_func ctx func_name in
-  let (ctx,block_items) = resolve_block_items ctx block_items in
-  (leave_func ctx, FunctionDef (loc, func_name, block_items))
+  match maybe_block_items with
+  | None -> (leave_func ctx, (loc, func_name, args, maybe_block_items))
+  | Some block_items ->
+     let (ctx,block_items) = resolve_block_items ctx block_items in
+     (leave_func ctx, (loc, func_name, args, Some block_items))
 
-let resolve_variables ctx (Program func_def) =
-  let (ctx, func_def) = resolve_function ctx func_def in
-  (ctx, Program func_def)
+let resolve_variables ctx (Program func_defs) =
+  let (ctx, func_defs) = map_with_ctx resolve_function ctx func_defs in
+  (ctx, Program func_defs)
 
 let verify_label_and_goto (Program func_def) =
   let rec find_labels labels block_item =
@@ -190,7 +205,7 @@ let verify_label_and_goto (Program func_def) =
     | S (Switch (_, _, stmt, _, _, _)) ->
       find_labels labels (S stmt)
     | S (Compound (_, Block block_items)) ->
-      List.fold_left find_labels labels block_items
+       List.fold_left find_labels labels block_items
     | _ -> labels in
   let verify_goto labels used_labels block_item =
     match block_item with
@@ -201,19 +216,23 @@ let verify_label_and_goto (Program func_def) =
        else
          StringMap.remove str used_labels
     | _ -> used_labels in
-  let verify_function (FunctionDef (loc, func_name, block_items)) =
-    let label_set = List.fold_left find_labels StringMap.empty block_items in
-    let used_labels = List.fold_left (verify_goto label_set)
-                        label_set block_items in
-    if StringMap.cardinal used_labels > 0 then
-      let warn_unused (label,loc) =
-        warn_at loc (Printf.sprintf "Unused label %s" label) in
-      (List.iter warn_unused (StringMap.to_list used_labels);
-       FunctionDef (loc, func_name, block_items))
-    else
-      FunctionDef (loc, func_name, block_items)
+  let verify_function (loc, func_name, args, block_items) =
+    match block_items with
+    | None -> (loc, func_name, args, block_items)
+    | Some block_items ->
+       let label_set = List.fold_left
+                         find_labels StringMap.empty block_items in
+       let used_labels = List.fold_left (verify_goto label_set)
+                           label_set block_items in
+       if StringMap.cardinal used_labels > 0 then
+         let warn_unused (label,loc) =
+           warn_at loc (Printf.sprintf "Unused label %s" label) in
+         (List.iter warn_unused (StringMap.to_list used_labels);
+          (loc, func_name, args, Some block_items))
+       else
+         (loc, func_name, args, Some block_items)
   in
-  Program (verify_function func_def)
+  Program (List.map verify_function func_def)
 
 let rec eval_const_expr expr =
   let to_bool i = if i == 0L then false else true  in
@@ -258,7 +277,7 @@ let rec eval_const_expr expr =
            | _ -> None)))
   | _ -> None
          
-let label_loops ctx (Program func_def) =
+let label_loops ctx (Program func_defs) =
   let rec label_stmt ctx stmt create_block =
     match stmt with
     | Return _ -> (ctx, stmt)
@@ -346,35 +365,45 @@ let label_loops ctx (Program func_def) =
     | Some stmt ->
        let (ctx, stmt) = label_stmt ctx stmt true in
        (ctx, Some stmt)
-  and label_block_item (ctx, items) block_item =
+  and label_block_item ctx block_item =
     match block_item with
-    | D (Declaration (loc, var_name, _)) ->
+    | D (VarDecl (loc, var_name, _)) ->
       if in_switch_block ctx then
         (match curr_switch_ctx ctx with
-         | None -> (ctx, block_item :: items)
+         | None -> (ctx, block_item)
          | Some switch_ctx ->
            if not switch_ctx.got_case then
              (warn_at loc "declaration in switch cannot be initialized";
-              (ctx, D (Declaration (loc, var_name, None)) :: items))
+              (ctx, D (VarDecl (loc, var_name, None))))
            else if not (has_default switch_ctx) then
              fail_at loc
                "declaration not allowed within non-default switch case"
            else
-             (ctx, block_item :: items))
+             (ctx, block_item))
       else
-       (ctx, block_item::items)
+        (ctx, block_item)
+    | D (FunDecl (loc, name, args, maybe_block_items)) ->
+           (match maybe_block_items with
+            | None -> (ctx, block_item)
+            | Some block_items ->
+                       let (ctx, block_items) =
+                         map_with_ctx label_block_item ctx block_items in
+                       (ctx, D (FunDecl (loc, name, args, Some block_items))))
     | S stmt ->
        let (ctx, stmt) = label_stmt ctx stmt true in
-       (ctx, (S stmt) :: items)
+       (ctx, (S stmt))
   and label_block_items ctx block_items =
-    let (ctx, block_items) =
-      List.fold_left label_block_item (ctx,[]) block_items in
-    (ctx, List.rev block_items) in
-  let label_function_loops ctx (FunctionDef (loc, func_name, block_items)) =
+    map_with_ctx label_block_item ctx block_items in
+  let label_function_loops ctx (loc, func_name, args, block_items) =
     let ctx = enter_func ctx func_name in
-    let (ctx, block_items) = label_block_items ctx block_items in
-    let ctx = leave_func ctx in
-    (ctx, FunctionDef (loc, func_name, block_items))
+    match block_items with
+    | None -> (leave_func ctx, (loc, func_name, args, block_items))
+    | Some block_items ->
+       let (ctx, block_items) =
+         label_block_items ctx block_items in
+       let ctx = leave_func ctx in
+       (ctx, (loc, func_name, args, Some block_items))
   in
-  let (_, func_def) = (label_function_loops ctx func_def) in
-  (ctx, Program func_def)
+  let (ctx, new_func_defs) =
+    map_with_ctx label_function_loops ctx func_defs in
+  (ctx, Program new_func_defs)

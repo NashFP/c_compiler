@@ -60,6 +60,7 @@ let str_of_token = function
   | GREATERGREATEREQUAL -> ">>="
   | QUESTION -> "?"
   | COLON -> ":"
+  | COMMA -> ","
 
 let ident_str = function
   | IDENTIFIER str -> str
@@ -254,7 +255,13 @@ let rec parse_factor tokens =
     if same_token tok (CONSTANT_INT 0L) then
       (ConstantInt (loc, constant_int_val tok), next_tokens)
     else if same_token tok (IDENTIFIER "") then
-      (Var (loc, ident_str tok), next_tokens)
+      match peek next_tokens with
+      | ((LPAREN,_), tokens) ->
+         let (args, tokens) = parse_expr_list tokens [] in
+         let tokens = expect RPAREN tokens in
+         (FunctionCall (loc, ident_str tok, args), tokens)
+      | _ ->
+         (Var (loc, ident_str tok), next_tokens)
     else if is_unop tok then
       let (unop, tokens) = parse_unop tokens in
       let (inner_expr, tokens) = parse_factor tokens in
@@ -311,8 +318,7 @@ and parse_expr tokens min_prec =
       (curr_left, tokens)
   in
   parse_expr1 loc left tokens min_prec
-
-let parse_optional_expr tokens terminator =
+and parse_optional_expr tokens terminator =
   let ((tok,_),_) = peek tokens in
   if same_token tok terminator then
     let tokens = expect terminator tokens in
@@ -322,7 +328,7 @@ let parse_optional_expr tokens terminator =
     let tokens = expect terminator tokens in
     (Some expr, tokens)
 
-let rec parse_statement tokens =
+and parse_statement tokens =
   match tokens with
   | [] -> failwith "Expected statement, found end of file"
   | ((IDENTIFIER str, loc) :: (COLON, _) :: tokens) ->
@@ -330,9 +336,9 @@ let rec parse_statement tokens =
      let new_label = Label (loc, str, stmt) in
      (new_label, tokens)
   | ((GOTO,loc) :: tokens) ->
-     let (tok,_, tokens) = expect_and_get (IDENTIFIER "") tokens in
+     let (str,_, tokens) = expect_identifier tokens in
      let tokens = expect SEMI tokens in
-     (Goto (loc, ident_str tok), tokens)
+     (Goto (loc, str), tokens)
   | ((RETURN,loc) :: tokens) ->
      let (expr, tokens) = parse_expr tokens 0 in
      let tokens = expect SEMI tokens in
@@ -400,12 +406,17 @@ and parse_declaration tokens =
   let (_, loc, tokens) = expect_and_get INT tokens in
   let (var_name, _, tokens) = expect_identifier tokens in
   match peek tokens with
+  | ((LPAREN, _), tokens) ->
+     let (args, tokens) = parse_arg_list tokens [] in
+     let tokens = expect RPAREN tokens in
+     let tokens = expect SEMI tokens in
+     (FunDecl (loc, var_name, args, None), tokens)
   | ((EQUAL,_), tokens) ->
      let (init_exp, tokens) = parse_expr tokens 0 in
      let tokens = expect SEMI tokens in
-     (Declaration (loc, var_name, Some init_exp), tokens)
+     (VarDecl (loc, var_name, Some init_exp), tokens)
   | ((SEMI,_), tokens) ->
-     (Declaration (loc, var_name, None), tokens)
+     (VarDecl (loc, var_name, None), tokens)
   | ((other,loc), _) ->
      fail_at loc
        (Printf.sprintf "Invalid declaration, expected ';', but found %s"
@@ -431,23 +442,67 @@ and parse_block_items tokens =
 
 and parse_for_init tokens =
   if is_declaration tokens then
-    let (decl, tokens) = parse_declaration tokens in
-    (InitDecl decl, tokens)
+    match parse_declaration tokens with
+    | (FunDecl (loc, _, _, _), _) ->
+       fail_at loc "Cannot declare a function in a for initialization"
+    | (VarDecl decl, tokens) -> (InitDecl decl, tokens)
   else
     let (expr, tokens) = parse_optional_expr tokens SEMI in
     (InitExpr expr, tokens)
-let parse_function tokens =
-  let (_, loc, tokens) = expect_and_get INT tokens in
-  let (ident, _, tokens) = expect_and_get (IDENTIFIER "") tokens in
-  let tokens = expect LPAREN tokens in
-  let tokens = expect VOID tokens in
-  let tokens = expect RPAREN tokens in
-  let tokens = expect LBRACE tokens in
-  let (stmts, tokens) = parse_block_items tokens in
-  let tokens = expect RBRACE tokens in
-  (FunctionDef (loc, ident_str ident, stmts), tokens)
+and parse_arg_list tokens args =
+    match peek tokens with
+    | ((RPAREN,_), _) -> (args, tokens)
+    | ((INT, _), tokens) ->
+       let (ident, _, tokens) = expect_identifier tokens in
+       let args = ident :: args in
+       (match peek tokens with
+        | ((COMMA,_), tokens) -> parse_arg_list tokens args
+        | ((RPAREN,_), _) -> (List.rev args, tokens)
+        | ((tok,loc),_) -> fail_at loc
+                             (Printf.sprintf "Unexpected token: %s"
+                                (str_of_token tok)))
+    | ((tok,loc),_) -> fail_at loc
+                         (Printf.sprintf "Unexpected token: %s"
+                            (str_of_token tok))
+and parse_expr_list tokens args =
+  let rec parse_expr_list tokens args =
+    match peek tokens with
+    | ((RPAREN, _), _) -> (List.rev args, tokens)
+    | _ ->
+       let (expr, tokens) = parse_expr tokens 0 in
+       match peek tokens with
+       | ((COMMA, _), tokens) ->
+          parse_expr_list tokens (expr :: args)
+       | ((RPAREN, _), _) -> (List.rev args, tokens)
+       | ((tok, loc), _) ->
+          fail_at loc
+            (Printf.sprintf "Unexpected token in function call: %s"
+               (str_of_token tok))
+  in
+  parse_expr_list tokens args
+                               
+let parse_functions tokens =
+  let rec parse_functions tokens funcs =
+    match peek tokens with
+    | ((EOF,_), tokens) -> (List.rev funcs, tokens)
+    | _ ->
+       let (_, loc, tokens) = expect_and_get INT tokens in
+       let (ident, _, tokens) = expect_and_get (IDENTIFIER "") tokens in
+       let tokens = expect LPAREN tokens in
+       let (params, tokens) =
+         (match peek tokens with
+          | ((VOID,_), tokens) -> ([], tokens)
+          | _ -> parse_arg_list tokens []) in
+       let tokens = expect RPAREN tokens in
+       let tokens = expect LBRACE tokens in
+       let (stmts, tokens) = parse_block_items tokens in
+       let tokens = expect RBRACE tokens in
+       parse_functions tokens 
+         ((loc, ident_str ident, params, Some stmts) :: funcs)
+  in
+  parse_functions tokens []
 
 let parse_program tokens =
-  let (func, tokens) = parse_function tokens in
+  let (funcs, tokens) = parse_functions tokens in
   let _ = expect EOF tokens in
-  Program func
+  Program funcs
