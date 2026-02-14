@@ -349,9 +349,14 @@ let generate_tacky_function ctx (C_ast.FunDecl (_, name, _storage_class,
      (ctx, Function (name, args,
                      List.rev (instrs <:: Return (ConstantInt 0L))))
 
-let generate_tacky_program ctx (C_ast.Program func_types) =
-  let is_full_func (C_ast.FunDecl (_, _, _, _, maybe_block_items)) =
-    Option.is_some maybe_block_items in
-  let func_types = List.filter is_full_func func_types in
-  let (ctx, func_defs) = map_with_ctx generate_tacky_function ctx func_types in
-  (ctx, Program func_defs)
+let generate_top_level ctx top_level =
+  match top_level with
+  | C_ast.F (C_ast.FunDecl (_, _, _, _, None)) -> (ctx, None)
+  | C_ast.F decl ->
+    let (ctx, decl) = generate_tacky_function ctx decl in
+    (ctx, Some decl)
+  | C_ast.V _decl -> failwith "can't handle top-level variables in tacky yet"
+let generate_tacky_program ctx (C_ast.Program top_level_defs) =
+  let (ctx, top_level_defs) =
+    map_opt_with_ctx generate_top_level ctx top_level_defs in
+  (ctx, Program top_level_defs)

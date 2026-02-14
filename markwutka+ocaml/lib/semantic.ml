@@ -146,7 +146,7 @@ and resolve_statement ctx stmt create_block =
      let (ctx, init) =
        match init with
        | InitDecl decl ->
-          let (ctx, decl) = resolve_var_decl ctx decl in
+          let (ctx, decl) = resolve_var_decl ctx decl false in
           (ctx, InitDecl decl)
        | InitExpr expr ->
           let (ctx, expr) = resolve_optional_expr ctx expr in
@@ -169,7 +169,12 @@ and resolve_statement ctx stmt create_block =
   | Goto _ -> (ctx, stmt)
   | Null -> (ctx, stmt)
 and resolve_var_decl ctx (VarDecl (loc, var_name, storage_class,
-                                   maybe_expr)) =
+                                   maybe_expr)) is_top_level =
+  let storage_class =
+    if is_top_level && Option.is_none storage_class then
+      Some Extern
+    else
+      storage_class in
   let (ctx, unique_var) = register_identifier ctx loc var_name
                             IdVar false in
      (match maybe_expr with
@@ -181,12 +186,14 @@ and resolve_var_decl ctx (VarDecl (loc, var_name, storage_class,
                              storage_class, None)))  
 and resolve_declaration ctx decl =
   match decl with
-  | F (FunDecl (loc, name, _storage_class, args, _)) ->
+  | F (FunDecl (loc, _name, _storage_class, _args, Some _)) ->
+    fail_at loc "Nested function declaration is not allowed"
+  | F (FunDecl (loc, name, _storage_class, args, None)) ->
      let (ctx, _) = register_identifier ctx loc name
                       (IdFuncForward args) true in
      (ctx, decl)
   | V decl ->
-     let (ctx, decl) = resolve_var_decl ctx decl in
+     let (ctx, decl) = resolve_var_decl ctx decl false in
      (ctx, V decl)
 and resolve_block_item ctx block_item =
   match block_item with
@@ -236,11 +243,20 @@ and resolve_function ctx (FunDecl (loc, func_name, storage_class,
      (leave_func ctx, FunDecl (loc, func_name, storage_class,
                        args, Some block_items))
 
-let resolve_variables ctx (Program func_defs) =
-  let (ctx, func_defs) = map_with_ctx resolve_function ctx func_defs in
-  (ctx, Program func_defs)
+let resolve_top_level ctx top_level =
+  match top_level with
+  | F decl ->
+    let (ctx, decl) = resolve_function ctx decl in
+    (ctx, F decl)
+  | V decl ->
+    let (ctx, decl) = resolve_var_decl ctx decl true in
+    (ctx, V decl)
+let resolve_variables ctx (Program top_level_defs) =
+  let (ctx, top_level_defs) = map_with_ctx resolve_top_level
+      ctx top_level_defs in
+  (ctx, Program top_level_defs)
 
-let verify_label_and_goto (Program func_defs) =
+let verify_label_and_goto (Program top_level_defs) =
   let rec find_labels labels block_item =
     match block_item with
     | D _ -> labels
@@ -292,7 +308,11 @@ let verify_label_and_goto (Program func_defs) =
        else
          (FunDecl (loc, func_name, storage_class, args, Some block_items))
   in
-  Program (List.map verify_function func_defs)
+  let verify_top_level decl =
+    match decl with
+    | F decl -> F (verify_function decl)
+    | _ -> decl in
+  Program (List.map verify_top_level top_level_defs)
 
 let rec eval_const_expr expr =
   let to_bool i = if i == 0L then false else true  in
@@ -337,7 +357,7 @@ let rec eval_const_expr expr =
            | _ -> None)))
   | _ -> None
          
-let label_loops ctx (Program func_defs) =
+let label_loops ctx (Program top_level_defs) =
   let rec label_stmt ctx stmt create_block =
     match stmt with
     | Return _ -> (ctx, stmt)
@@ -468,6 +488,12 @@ let label_loops ctx (Program func_defs) =
        let ctx = leave_func ctx in
        (ctx, FunDecl (loc, func_name, storage_class, args, Some block_items))
   in
-  let (ctx, new_func_defs) =
-    map_with_ctx label_function_loops ctx func_defs in
-  (ctx, Program new_func_defs)
+  let label_top_level ctx decl =
+    match decl with
+    | F decl ->
+      let (ctx, decl) = label_function_loops ctx decl in
+      (ctx, F decl)
+    | _ -> (ctx, decl) in
+  let (ctx, new_top_level_defs) =
+    map_with_ctx label_top_level ctx top_level_defs in
+  (ctx, Program new_top_level_defs)

@@ -37,6 +37,14 @@ let map_with_ctx fn ctx items =
     (ctx, item :: items) in
   let (ctx, items) = List.fold_left folder (ctx,[]) items in
   (ctx, List.rev items)
+  
+let map_opt_with_ctx fn ctx items =
+  let folder (ctx,items) item =
+    match fn ctx item with
+    | (ctx, None) -> (ctx, items)
+    | (ctx, Some item) -> (ctx, item :: items) in
+  let (ctx, items) = List.fold_left folder (ctx,[]) items in
+  (ctx, List.rev items)
 
 let fail_at (C_ast.Location (filename, line, column)) message =
   Printf.printf "%s, line %d, column %d: %s\n" filename line column message;
