@@ -1,12 +1,13 @@
 module StringMap = Map.Make(String)
 module Int64Map = Map.Make(Int64)
 
-type identifier_id_type = IdVar
+type identifier_id_type = IdVar of C_ast.exp_type option
                         | IdFuncForward of string list
                         | IdFunc of string list
 type identifier_type = { id_type : identifier_id_type;
+                         storage_class : C_ast.storage_class_type;
                          orig_name: string; unique_name: string;
-                       has_linkage: bool}
+                       globally_visible: bool}
 
 type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch |
                   BlockStatements
@@ -51,7 +52,8 @@ let fail_at (C_ast.Location (filename, line, column)) message =
   exit 1
 
 let warn_at (C_ast.Location (filename, line, column)) message =
-  Printf.printf "Warning: %s, line %d, column %d: %s\n" filename line column message
+  Printf.printf "Warning: %s, line %d, column %d: %s\n"
+    filename line column message
 
 let make_func_temporary ctx =
   ( { ctx with func_next_temp_num = ctx.func_next_temp_num + 1 },
@@ -74,7 +76,10 @@ let lookup_identifier ctx ident =
     | [] ->
        (match StringMap.find_opt ident ctx.global_identifiers with
         | None -> (None, false)
-        | Some v -> (Some v, false))
+        | Some v -> if v.globally_visible then
+                      (Some v, false)
+                    else
+                      (None, false))
     | identifiers :: identifier_stack ->
       (match StringMap.find_opt ident identifiers with
        | Some v -> (Some v, in_current_scope)
@@ -82,9 +87,11 @@ let lookup_identifier ctx ident =
   in
   lookup_ident_1 ctx.identifier_stack true
 
+let lookup_global ctx ident = StringMap.find_opt ident ctx.global_identifiers
+
 let compare_id_type_decls id1 id2 =
   match (id1, id2) with
-  | (IdVar, IdVar) -> false
+  | (IdVar _, IdVar _) -> false
   | (IdFunc args1, IdFunc args2) -> List.length args1 == List.length args2
   | (IdFunc args1, IdFuncForward args2) ->
      List.length args1 == List.length args2
@@ -94,38 +101,184 @@ let compare_id_type_decls id1 id2 =
      List.length args1 == List.length args2
   | _ -> false
 
-let register_identifier ctx loc ident_name id_type has_linkage =
-  let symbol_map = if has_linkage then ctx.global_identifiers else
-                  List.hd ctx.identifier_stack in
+let is_var id_type =
+  match id_type with
+  | IdVar _ -> true
+  | _ -> false
+
+let check_global_conflicts ctx loc ident_name id_type storage_class =
+  match StringMap.find_opt ident_name ctx.global_identifiers with
+  | Some ident ->
+     (match ident.id_type with
+      | IdVar init ->
+         (match id_type with
+          | IdVar new_init ->
+             if Option.is_some init && Option.is_some new_init then
+               fail_at loc (Printf.sprintf
+                              "Redefinition of %s" ident_name)
+             else if ident.storage_class = Extern &&
+                       storage_class = C_ast.Static then
+               fail_at loc (Printf.sprintf
+                              "Static declaration of %s follows non-static"
+                              ident_name)
+             else if ident.storage_class = Static &&
+                       storage_class = C_ast.ImpliedExtern then
+               fail_at loc (Printf.sprintf
+                              "Non-static declaration of %s follows static"
+                              ident_name)
+             else
+               ()
+          | _ -> 
+             fail_at loc (Printf.sprintf "Cannot redeclare %s as a function"
+                          ident_name))
+      | _ ->
+         if ident.storage_class = Extern && storage_class = Static then
+           fail_at loc (Printf.sprintf "Cannot redeclare extern %s as static"
+                          ident_name)
+         else if not (compare_id_type_decls id_type ident.id_type) then
+           fail_at loc (Printf.sprintf "Duplicate identifier declared: %s"
+                          ident_name)
+         else
+           ())
+  | None -> ()
+      
+let register_global_identifier ctx loc ident_name id_type storage_class
+  globally_visible =
+  check_global_conflicts ctx loc ident_name id_type storage_class;
+  match StringMap.find_opt ident_name ctx.global_identifiers with
+  | Some ident ->
+     let (ident, ident_changed) =
+       if (storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern)
+          && ident.storage_class = Static then
+         ({ident with storage_class=C_ast.Static}, true)
+       else
+         (ident, false)
+     in
+     let (ident, ident_changed) =
+       if globally_visible && not ident.globally_visible then
+         ({ident with globally_visible = true}, true)
+       else
+         (ident, ident_changed)
+     in
+     (match ident.id_type with
+      | IdVar _ ->
+         (match id_type with
+          | IdVar new_init ->
+             if Option.is_some new_init then
+               let ident = { ident with id_type=id_type} in
+               ({ctx with global_identifiers=
+                            StringMap.add ident_name ident
+                              ctx.global_identifiers },
+                ident)
+             else if ident_changed then
+               ({ctx with global_identifiers=
+                            StringMap.add ident_name ident
+                              ctx.global_identifiers}, ident)
+             else
+               (ctx, ident)
+          | _ -> 
+             fail_at loc (Printf.sprintf "Cannot redeclare %s as a function"
+                          ident_name))
+      | _ ->
+         if ident.storage_class = Extern && storage_class = Static then
+           fail_at loc (Printf.sprintf "Cannot redeclare extern %s as static"
+                          ident_name)
+         else if not (compare_id_type_decls id_type ident.id_type) then
+           fail_at loc (Printf.sprintf "Duplicate identifier declared: %s"
+                          ident_name)
+         else if ident_changed then
+           ({ctx with global_identifiers=
+                        StringMap.add ident_name ident
+                          ctx.global_identifiers}, ident)
+         else
+           (ctx, ident))
+  | None ->
+     let storage_class =
+       if storage_class = C_ast.ImpliedExtern then
+         C_ast.Extern
+       else
+         storage_class
+     in
+     let new_ident = {id_type=id_type; orig_name=ident_name;
+                      storage_class=storage_class;
+                      unique_name=ident_name;
+                     globally_visible=globally_visible} in
+     let identifiers = StringMap.add ident_name new_ident
+                         ctx.global_identifiers in
+     ({ ctx with global_identifiers=identifiers}, new_ident)      
+  
+let register_identifier ctx loc ident_name id_type storage_class =
+  let check_external () =
+    if storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern then
+        match StringMap.find_opt ident_name (List.hd ctx.identifier_stack) with
+        | Some ident ->
+           if ident.storage_class = Auto then
+             fail_at loc
+               (Printf.sprintf "Cannot define %s as both local and global"
+                  ident_name)
+           else if ident.storage_class = C_ast.Static &&
+                     storage_class = C_ast.Extern then
+             fail_at loc
+               (Printf.sprintf "Cannot define %s as both static and extern"
+                  ident_name)
+           else
+             ()
+        | None ->
+           (match StringMap.find_opt ident_name ctx.global_identifiers with
+            | None -> ()
+            | Some ident ->
+               if is_var id_type then
+                 if not (is_var ident.id_type) then
+                   fail_at loc
+                     (Printf.sprintf "Duplicate identifier declared: %s"
+                        ident_name)
+                 else
+                   ()
+               else if not (compare_id_type_decls id_type ident.id_type) then
+                 fail_at loc
+                   (Printf.sprintf "Duplicate identifier declared: %s"
+                      ident_name)
+               else ())
+    else
+      ()
+  in
+  check_external();
+  let (ctx, _) =
+    if storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern then
+      register_global_identifier ctx loc ident_name id_type
+        storage_class false
+    else
+      (ctx, {id_type=id_type;
+                      storage_class=storage_class;
+                      orig_name=ident_name;
+                      unique_name=ident_name;
+                      globally_visible=false} )
+  in
+  let symbol_map = List.hd ctx.identifier_stack in
   match StringMap.find_opt ident_name symbol_map with
   | Some ident ->
-     if not (compare_id_type_decls id_type ident.id_type) then
+     if (not (compare_id_type_decls id_type ident.id_type)) &&
+          storage_class != Extern
+     then
        fail_at loc (Printf.sprintf "Duplicate identifier declared: %s"
                       ident_name)
      else
        (ctx, ident)
   | None ->
-     let ctx =
-       if has_linkage then
-         let new_ident = {id_type=id_type; orig_name=ident_name;
-                          unique_name=ident_name;
-                          has_linkage=has_linkage;} in
-         let identifiers = StringMap.add ident_name new_ident symbol_map in         
-         { ctx with global_identifiers=identifiers}
-       else
-         ctx in
-     let unique_name = Printf.sprintf "%s.%d" ident_name ctx.global_counter in
+     let unique_name = Printf.sprintf "%s.%d"
+                         ident_name ctx.global_counter in
      let new_ident = {id_type=id_type;
+                      storage_class=storage_class;
                       orig_name=ident_name;
                       unique_name=unique_name;
-                      has_linkage=has_linkage} in
+                     globally_visible=false} in
      let identifiers = StringMap.add ident_name new_ident
                          (List.hd ctx.identifier_stack) in
      ({ctx with global_counter=ctx.global_counter+1;
                 identifier_stack=
                   identifiers :: List.tl ctx.identifier_stack },
       new_ident)
-       
+
 let curr_block_id ctx =
   match ctx.block_stack with
   | [] -> None

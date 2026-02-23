@@ -283,11 +283,12 @@ let parse_type_spec tokens =
   else
     let storage_class =
       if got_static then
-        Some Static
+        Static
       else if got_extern then
-        Some Extern
+        Extern
       else
-        None in
+        ImpliedExtern
+    in
     ((Option.get type_spec, loc, storage_class), tokens)
 
 let rec parse_factor tokens =

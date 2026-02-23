@@ -24,6 +24,49 @@ let compound_name = function
   | PostDec -> "post-decrement"
   | _ -> failwith "Tried to get compound name for non compound op"
 
+let rec eval_const_expr expr =
+  let to_bool i = if i == 0L then false else true  in
+  let from_bool b = if b then 1L else 0L in
+  match expr with
+  | ConstantInt (_,v) -> Some v
+  | Unary (_, op, unary_expr) ->
+    (match eval_const_expr unary_expr with
+     | None -> None
+     | Some v ->
+       (match op with
+        | Complement -> Some (Int64.logxor v 0L)
+        | Negate -> Some (Int64.neg v)
+        | Not -> Some (if v == 0L then 1L else 0L)
+        | _ -> None))
+  | Binary (_, op, left, right) ->
+    (match eval_const_expr left with
+     | None -> None
+     | Some l ->
+       (match eval_const_expr right with
+        | None -> None
+        | Some r ->
+          (match op with
+           | Add -> Some (Int64.add l r)
+           | Subtract -> Some (Int64.sub l r)
+           | Multiply -> Some (Int64.mul l r)
+           | Divide -> Some (Int64.div l r)
+           | Remainder -> Some (Int64.rem l r)
+           | ShiftLeft -> Some (Int64.shift_left l (Int64.to_int r))
+           | ShiftRight -> Some (Int64.shift_right l (Int64.to_int r))
+           | BitwiseAnd -> Some (Int64.logand l r)
+           | BitwiseOr -> Some (Int64.logor l r)
+           | BitwiseXor -> Some (Int64.logxor l r)
+           | And -> Some (from_bool ((to_bool l) && (to_bool r)))
+           | Or -> Some (from_bool ((to_bool l) || (to_bool r)))
+           | Equal -> Some (from_bool (l == r))
+           | NotEqual -> Some (from_bool (l != r))
+           | LessThan -> Some (from_bool (l < r))
+           | LessOrEqual -> Some (from_bool (l <= r))
+           | GreaterThan -> Some (from_bool (l > r))
+           | GreaterOrEqual -> Some (from_bool (l >= r))
+           | _ -> None)))
+  | _ -> None
+         
 let rec resolve_expr ctx expr =
   match expr with
   | Var (loc, var_name) ->
@@ -31,22 +74,25 @@ let rec resolve_expr ctx expr =
      | (None,_) -> Context.fail_at loc
                  (Printf.sprintf "Undeclared variable: %s" var_name)
      | (Some v,_) ->
-        if v.id_type != IdVar then
-          fail_at loc (Printf.sprintf "Cannot treat function %s as a variable"
-                         var_name)
-        else
-          (ctx, Var (loc, v.unique_name)))
+        (match v.id_type with
+         | IdVar _ -> (ctx, Var (loc, v.unique_name))
+         | _ ->
+            fail_at loc (
+                Printf.sprintf "Cannot treat function %s as a variable"
+                  var_name)))
   | Assignment (loc, (Var (vloc, var_name)), expr) ->
      (match lookup_identifier ctx var_name with
       | (None,_) -> Context.fail_at loc
                   (Printf.sprintf "Undeclared variable: %s" var_name)
       | (Some v,_) ->
-         if v.id_type != IdVar then
-           fail_at loc (Printf.sprintf "Cannot assign a value to function %s"
-                          var_name)
-         else
-           let (ctx, expr) = resolve_expr ctx expr in
-           (ctx, Assignment (loc, Var (vloc, v.unique_name), expr)))
+         (match v.id_type with
+          | IdVar _ -> 
+             let (ctx, expr) = resolve_expr ctx expr in
+             (ctx, Assignment (loc, Var (vloc, v.unique_name), expr))
+          | _ ->
+             fail_at loc
+               (Printf.sprintf "Cannot assign a value to function %s"
+                  var_name)))
   | Assignment (loc, _, _) ->
      Context.fail_at loc
        (Printf.sprintf "Invalid lvalue in assignment")
@@ -84,7 +130,7 @@ let rec resolve_expr ctx expr =
                               name)
      | Some ident ->
         (match ident.id_type with
-         | IdVar -> fail_at loc
+         | IdVar _ -> fail_at loc
                      (Printf.sprintf "Function call on non function %s"
                               name)
          | IdFunc declared_args | IdFuncForward declared_args ->
@@ -124,7 +170,6 @@ and resolve_statement ctx stmt create_block =
     let ctx = if create_block then enter_statements_block ctx else ctx in
     let (ctx, block_items) = resolve_block_items ctx block_items in
     let ctx = if create_block then leave_block ctx else ctx in
-
      (ctx, Compound (loc, Block block_items))
   | Label (loc,str,stmt) -> 
      let (ctx, stmt) = resolve_statement ctx stmt true in
@@ -145,6 +190,10 @@ and resolve_statement ctx stmt create_block =
      let (ctx,_) = enter_block ctx BlockFor in
      let (ctx, init) =
        match init with
+       | InitDecl (VarDecl (loc,_,Extern,_)) ->
+          fail_at loc "Cannot use extern in for loop declaration"
+       | InitDecl (VarDecl (loc,_,Static,_)) ->
+          fail_at loc "Cannot use static in for loop declaration"          
        | InitDecl decl ->
           let (ctx, decl) = resolve_var_decl ctx decl false in
           (ctx, InitDecl decl)
@@ -170,14 +219,38 @@ and resolve_statement ctx stmt create_block =
   | Null -> (ctx, stmt)
 and resolve_var_decl ctx (VarDecl (loc, var_name, storage_class,
                                    maybe_expr)) is_top_level =
+  let ensure_static_init loc init =
+    match eval_const_expr init with
+    | Some _ -> Some init
+    | _ -> fail_at loc "Static initializer must be a static expression"
+  in
   let storage_class =
-    if is_top_level && Option.is_none storage_class then
-      Some Extern
-    else
-      storage_class in
-  let (ctx, unique_var) = register_identifier ctx loc var_name
-                            IdVar false in
-     (match maybe_expr with
+    match storage_class with
+    | ImpliedExtern ->
+       if is_top_level then
+         ImpliedExtern
+       else
+         Auto
+    | x -> x
+  in
+  if storage_class = Extern && (not is_top_level) &&
+       Option.is_some maybe_expr then
+    fail_at loc "Cannot initialize an extern var within a block"
+  else
+    let maybe_expr = if storage_class != Auto &&
+                          Option.is_some maybe_expr then
+                       ensure_static_init loc (Option.get maybe_expr)
+                     else
+                       maybe_expr in
+    let (ctx, unique_var) =
+      if is_top_level then
+        register_global_identifier ctx loc var_name (IdVar maybe_expr)
+          storage_class is_top_level
+      else
+        register_identifier ctx loc var_name
+          (IdVar maybe_expr) storage_class
+    in
+    (match maybe_expr with
      | Some var_exp ->
         let (ctx, var_exp) = resolve_expr ctx var_exp in
         (ctx, VarDecl (loc, unique_var.unique_name, storage_class,
@@ -188,9 +261,12 @@ and resolve_declaration ctx decl =
   match decl with
   | F (FunDecl (loc, _name, _storage_class, _args, Some _)) ->
     fail_at loc "Nested function declaration is not allowed"
-  | F (FunDecl (loc, name, _storage_class, args, None)) ->
+  | F (FunDecl (loc, _name, Static, _args, None)) ->
+     fail_at loc
+       "Cannot have static storage class in block function declarations"
+  | F (FunDecl (loc, name, storage_class, args, None)) ->
      let (ctx, _) = register_identifier ctx loc name
-                      (IdFuncForward args) true in
+                      (IdFuncForward args) storage_class in
      (ctx, decl)
   | V decl ->
      let (ctx, decl) = resolve_var_decl ctx decl false in
@@ -206,7 +282,13 @@ and resolve_block_items ctx block_items =
 and resolve_function ctx (FunDecl (loc, func_name, storage_class,
                           args, maybe_block_items)) =
   let uniq_arg_name ctx arg =
-    let (ctx, arg) = register_identifier ctx loc arg IdVar false in
+    let new_storage_class =
+      match storage_class with
+      | ImpliedExtern -> Auto
+      | sc -> sc
+    in
+    let (ctx, arg) = register_identifier ctx loc arg
+                       (IdVar None) new_storage_class in
     (ctx, arg.unique_name) in
   let check_function_defined ctx =
     match lookup_identifier ctx func_name with
@@ -228,8 +310,8 @@ and resolve_function ctx (FunDecl (loc, func_name, storage_class,
   let ctx = check_function_defined ctx in
   let func_id_type = if Option.is_some maybe_block_items then (IdFunc args)
                      else (IdFuncForward args) in
-  let (ctx, _) = register_identifier ctx loc func_name
-                   func_id_type true in
+  let (ctx, _) = register_global_identifier ctx loc func_name
+                   func_id_type storage_class true in
   let ctx = enter_statements_block ctx in
   let (ctx, args) = map_with_ctx uniq_arg_name ctx args in
   let ctx = enter_func ctx func_name in
@@ -314,49 +396,6 @@ let verify_label_and_goto (Program top_level_defs) =
     | _ -> decl in
   Program (List.map verify_top_level top_level_defs)
 
-let rec eval_const_expr expr =
-  let to_bool i = if i == 0L then false else true  in
-  let from_bool b = if b then 1L else 0L in
-  match expr with
-  | ConstantInt (_,v) -> Some v
-  | Unary (_, op, unary_expr) ->
-    (match eval_const_expr unary_expr with
-     | None -> None
-     | Some v ->
-       (match op with
-        | Complement -> Some (Int64.logxor v 0L)
-        | Negate -> Some (Int64.neg v)
-        | Not -> Some (if v == 0L then 1L else 0L)
-        | _ -> None))
-  | Binary (_, op, left, right) ->
-    (match eval_const_expr left with
-     | None -> None
-     | Some l ->
-       (match eval_const_expr right with
-        | None -> None
-        | Some r ->
-          (match op with
-           | Add -> Some (Int64.add l r)
-           | Subtract -> Some (Int64.sub l r)
-           | Multiply -> Some (Int64.mul l r)
-           | Divide -> Some (Int64.div l r)
-           | Remainder -> Some (Int64.rem l r)
-           | ShiftLeft -> Some (Int64.shift_left l (Int64.to_int r))
-           | ShiftRight -> Some (Int64.shift_right l (Int64.to_int r))
-           | BitwiseAnd -> Some (Int64.logand l r)
-           | BitwiseOr -> Some (Int64.logor l r)
-           | BitwiseXor -> Some (Int64.logxor l r)
-           | And -> Some (from_bool ((to_bool l) && (to_bool r)))
-           | Or -> Some (from_bool ((to_bool l) || (to_bool r)))
-           | Equal -> Some (from_bool (l == r))
-           | NotEqual -> Some (from_bool (l != r))
-           | LessThan -> Some (from_bool (l < r))
-           | LessOrEqual -> Some (from_bool (l <= r))
-           | GreaterThan -> Some (from_bool (l > r))
-           | GreaterOrEqual -> Some (from_bool (l >= r))
-           | _ -> None)))
-  | _ -> None
-         
 let label_loops ctx (Program top_level_defs) =
   let rec label_stmt ctx stmt create_block =
     match stmt with
