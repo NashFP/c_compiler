@@ -273,9 +273,7 @@ let parse_type_spec tokens =
        else
          parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
            true got_extern
-    | ((tok,_),_)  -> (Printf.printf "Finished parsing type spec at token %s\n"
-           (str_of_token tok);
-            ((type_spec, opt_loc, got_static, got_extern), tokens))
+    | ((_,_),_)  -> ((type_spec, opt_loc, got_static, got_extern), tokens)
   in
   let ((type_spec, opt_loc, got_static, got_extern), tokens) =
     parse_type_spec1 tokens None None false false in
