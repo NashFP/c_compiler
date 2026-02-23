@@ -252,7 +252,6 @@ let parse_binop tokens =
               (str_of_token tok))
 
 let parse_type_spec tokens =
-  Printf.printf "Parsing type spec\n";
   let first_loc opt_loc loc =
     match opt_loc with
     | Some _ -> opt_loc
@@ -260,17 +259,20 @@ let parse_type_spec tokens =
   let rec parse_type_spec1 tokens type_spec opt_loc got_static got_extern =
     match peek tokens with
     | ((INT, loc), tokens) ->
-       (Printf.printf "Got int\n";
        parse_type_spec1 tokens (Some Int) (first_loc opt_loc loc)
-         got_static got_extern)
+         got_static got_extern
     | ((EXTERN, loc), tokens) ->
-       (Printf.printf "Got extern\n";
-       parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
-         got_static true)
+       if got_static then
+         fail_at loc "Cannot declare something to be both extern and static"
+       else
+         parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
+           got_static true
     | ((STATIC, loc), tokens) ->
-       (Printf.printf "Got static\n";
-        parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
-         true got_extern)
+       if got_extern then
+         fail_at loc "Cannot declare something to be both extern and static"
+       else
+         parse_type_spec1 tokens type_spec (first_loc opt_loc loc)
+           true got_extern
     | ((tok,_),_)  -> (Printf.printf "Finished parsing type spec at token %s\n"
            (str_of_token tok);
             ((type_spec, opt_loc, got_static, got_extern), tokens))
@@ -443,7 +445,7 @@ and parse_statement tokens =
                             let tokens = expect SEMI tokens in
                             (Expression (loc, expr), tokens)
 
-and parse_declaration tokens =
+and parse_declaration is_top_level tokens =
     let ((_type_spec, loc, storage_class), tokens) = parse_type_spec tokens in
     let (var_name, _, tokens) = expect_identifier tokens in
     match peek tokens with
@@ -454,11 +456,14 @@ and parse_declaration tokens =
           | _ -> parse_arg_list tokens []) in
        let tokens = expect RPAREN tokens in
        (match peek tokens with
-        | ((LBRACE, _), tokens) ->
-           let (stmts, tokens) = parse_block_items tokens in
-           let tokens = expect RBRACE tokens in
-           (F (FunDecl (loc, var_name, storage_class, args, Some stmts)),
-            tokens)
+        | ((LBRACE, loc), tokens) ->
+           if not is_top_level then
+             fail_at loc "Cannot declare a nested function"
+           else
+             let (stmts, tokens) = parse_block_items tokens in
+             let tokens = expect RBRACE tokens in
+             (F (FunDecl (loc, var_name, storage_class, args, Some stmts)),
+              tokens)
         | ((SEMI, _), tokens) ->
            (F (FunDecl (loc, var_name, storage_class, args, None)), tokens)
         | ((tok,loc), _) ->
@@ -483,7 +488,7 @@ and is_declaration tokens =
 and parse_block_items tokens =
   let rec parse_block_items_1 tokens items =
     if is_declaration tokens then
-       let (decl, tokens) = parse_declaration tokens in
+       let (decl, tokens) = parse_declaration false tokens in
        parse_block_items_1 tokens (D decl :: items)
     else
       match tokens with
@@ -497,7 +502,7 @@ and parse_block_items tokens =
 
 and parse_for_init tokens =
   if is_declaration tokens then
-    match parse_declaration tokens with
+    match parse_declaration false tokens with
     | (F (FunDecl (loc, _, _, _, _)), _) ->
        fail_at loc "Cannot declare a function in a for initialization"
     | (V decl, tokens) -> (InitDecl decl, tokens)
@@ -548,7 +553,7 @@ let parse_top_level tokens =
     match peek tokens with
     | ((EOF,_), _) -> (List.rev decls, tokens)
     | _ ->
-       let (decl, tokens) = parse_declaration tokens in
+       let (decl, tokens) = parse_declaration true tokens in
        parse_top_level tokens (decl :: decls)
   in
   parse_top_level tokens []
