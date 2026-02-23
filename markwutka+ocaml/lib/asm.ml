@@ -4,7 +4,7 @@ type size_type = Size_1 | Size_4 | Size_8
 type reg_type = AX | DX | R10 | R11 | CX | DI | SI | R8 | R9
 type cond_code = E | NE | G | GE | L | LE
 type operand_type = Imm of int64 | Reg of reg_type | Pseudo of string |
-    Stack of int
+    Stack of int | Data of (string * bool)
 type unary_operator = Neg | Not
 type binary_operator = Add | Sub | Mult | ShiftLeft | ShiftRight |
                        BitwiseAnd | BitwiseOr | BitwiseXor |
@@ -28,8 +28,9 @@ type instruction =
   | Call of string
   | Ret
     
-type function_definition = Function of string * instruction list * int
-type program_type = Program of function_definition list
+type top_level_definition = Function of string * bool * instruction list * int
+                          | StaticVar of string * bool * (int64 option)
+type program_type = Program of top_level_definition list
 
 let calling_regs = [ DI; SI; DX; CX; R8; R9 ]
 
@@ -182,29 +183,33 @@ let generate_asm_instr instrs instr =
                     instrs in
      instrs <:: Mov (Reg AX, convert_operand dst)
   
-let generate_asm_func (Tacky.Function (name, args, instrs)) =
-  let asm_instrs = [] in
-  let gen_move_reg_to_stack instrs (reg,arg) =
-    instrs <:: Mov (Reg reg, convert_operand arg) in
-  let gen_move_to_stack (instrs, stack_offset) arg =
-    (instrs <:: Mov (Stack stack_offset, convert_operand arg),
-     stack_offset + 8) in
-  let call_reg_pairs = pair_regs calling_regs args [] in
-  let asm_instrs = List.fold_left gen_move_reg_to_stack
-                     asm_instrs call_reg_pairs in
-  let args_rest = List.drop 6 args in
-  let (asm_instrs, _) = List.fold_left gen_move_to_stack
-                      (asm_instrs, 16) args_rest in
-  let instrs_rev = List.fold_left generate_asm_instr asm_instrs instrs in
-  Function (name, List.rev instrs_rev, 0)
+let generate_asm_top_level top_level_item =
+  match top_level_item with
+  | Tacky.Function (name, global, args, instrs) ->
+     let asm_instrs = [] in
+     let gen_move_reg_to_stack instrs (reg,arg) =
+       instrs <:: Mov (Reg reg, convert_operand arg) in
+     let gen_move_to_stack (instrs, stack_offset) arg =
+       (instrs <:: Mov (Stack stack_offset, convert_operand arg),
+        stack_offset + 8) in
+     let call_reg_pairs = pair_regs calling_regs args [] in
+     let asm_instrs = List.fold_left gen_move_reg_to_stack
+                        asm_instrs call_reg_pairs in
+     let args_rest = List.drop 6 args in
+     let (asm_instrs, _) = List.fold_left gen_move_to_stack
+                             (asm_instrs, 16) args_rest in
+     let instrs_rev = List.fold_left generate_asm_instr asm_instrs instrs in
+     Function (name, global, List.rev instrs_rev, 0)
+  | Tacky.StaticVar (name, global, init) ->
+     StaticVar (name, global, init)
 
 let generate_asm_program (Tacky.Program func_defs) =
-  Program (List.map generate_asm_func func_defs)
+  Program (List.map generate_asm_top_level func_defs)
 
 let pseudo_to_stack var_map stack_size s =
   match StringMap.find_opt s var_map with
-  | Some v -> (var_map, stack_size, Stack v)
-  | None -> (StringMap.add s (stack_size-4) var_map, stack_size - 4,
+  | Some d -> (var_map, stack_size, d)
+  | None -> (StringMap.add s (Stack (stack_size-4)) var_map, stack_size - 4,
     Stack (stack_size - 4))
 
 let replace_op_pseudo var_map stack_size op =
@@ -251,13 +256,26 @@ let replace_pseudo (var_map, stack_size, instrs) instr =
      (var_map, stack_size - 8, instr :: instrs)      
   | rest -> (var_map, stack_size, rest :: instrs)
 
-let replace_pseudo_func (Function (name, instrs,_)) =
-  let (_, stack_size, new_instrs) =
-    List.fold_left replace_pseudo (StringMap.empty, 0, []) instrs in
-  Function (name, List.rev new_instrs, -stack_size)
+let build_var_map top_levels =
+  let add_decl var_map top_level =
+    match top_level with
+    | StaticVar (name,_,init) ->
+       StringMap.add name (Data (name, Option.is_none init)) var_map
+    | _ -> var_map
+  in
+  List.fold_left add_decl StringMap.empty top_levels
 
-let replace_pseudo_program (Program func_defs) =  
-   Program (List.map replace_pseudo_func func_defs)
+let replace_pseudo_func var_map top_level =
+  match top_level with
+  | Function (name, global, instrs, _) ->
+      let (_, stack_size, new_instrs) =
+        List.fold_left replace_pseudo (var_map, 0, []) instrs in
+      Function (name, global, List.rev new_instrs, -stack_size)
+  | x -> x
+
+let replace_pseudo_program (Program top_level_defs) =
+  let var_map = build_var_map top_level_defs in
+  Program (List.map (replace_pseudo_func var_map) top_level_defs)
 
 let fixup_instr instrs instr =
   match instr with
@@ -265,65 +283,82 @@ let fixup_instr instrs instr =
     instrs
     <:: Mov (Stack src, Reg R10)
     <:: Mov (Reg R10, Stack dst)
+  | Mov (Data src, Stack dst) ->
+    instrs
+    <:: Mov (Data src, Reg R10)
+    <:: Mov (Reg R10, Stack dst)
+  | Mov (Stack src, Data dst) ->
+    instrs
+    <:: Mov (Stack src, Reg R10)
+    <:: Mov (Reg R10, Data dst)
+  | Mov (Data src, Data dst) ->
+    instrs
+    <:: Mov (Data src, Reg R10)
+    <:: Mov (Reg R10, Data dst)
   | Idiv src ->
     instrs
     <:: Mov (src, Reg R10)
     <:: Idiv (Reg R10)
-  | Binary (Add, Stack src, Stack dst) ->
+  | Binary (Mult, src1, Stack dst) ->
+     instrs
+     <:: Mov (Stack dst, Reg R11)
+     <:: Binary (Mult, src1, Reg R11)
+     <:: Mov (Reg R11, Stack dst)
+  | Binary (Mult, src1, Data dst) ->
+     instrs
+     <:: Mov (Data dst, Reg R11)
+     <:: Binary (Mult, src1, Reg R11)
+     <:: Mov (Reg R11, Data dst)
+  | Binary (op, Stack src, Stack dst) ->
     instrs
     <:: Mov (Stack src, Reg R10)
-    <:: Binary (Add, Reg R10, Stack dst)
-  | Binary (Sub, Stack src, Stack dst) ->
+    <:: Binary (op, Reg R10, Stack dst)
+  | Binary (op, Stack src, Data dst) ->
     instrs
     <:: Mov (Stack src, Reg R10)
-    <:: Binary (Sub, Reg R10, Stack dst)
-  | Binary (Mult, src, Stack dst) ->
+    <:: Binary (op, Reg R10, Data dst)
+  | Binary (op, Data src, Stack dst) ->
     instrs
-    <:: Mov (Stack dst, Reg R11)
-    <:: Binary (Mult, src, Reg R11)
-    <:: Mov (Reg R11, Stack dst)
-  | Binary (BitwiseAnd, src, Stack dst) ->
+    <:: Mov (Data src, Reg R10)
+    <:: Binary (op, Reg R10, Stack dst)
+  | Binary (op, Data src, Data dst) ->
     instrs
-    <:: Mov (Stack dst, Reg R11)
-    <:: Binary (BitwiseAnd, src, Reg R11)
-    <:: Mov (Reg R11, Stack dst)
-  | Binary (BitwiseOr, src, Stack dst) ->
-    instrs
-    <:: Mov (Stack dst, Reg R11)
-    <:: Binary (BitwiseOr, src, Reg R11)
-    <:: Mov (Reg R11, Stack dst)
-  | Binary (BitwiseXor, src, Stack dst) ->
-    instrs
-    <:: Mov (Stack dst, Reg R11)
-    <:: Binary (BitwiseXor, src, Reg R11)
-    <:: Mov (Reg R11, Stack dst)
-  | Binary (ShiftLeft, src, dst) ->
-    instrs
-    <:: Mov (src, Reg CX)
-    <:: Binary (ShiftLeft, Reg CX, dst)
-  | Binary (ShiftRight, src, dst) ->
-    instrs
-    <:: Mov (src, Reg CX)
-    <:: Binary (ShiftRight, Reg CX, dst)
+    <:: Mov (Data src, Reg R10)
+    <:: Binary (op, Reg R10, Data dst)
   | Cmp (Stack src1, Stack src2) ->
     instrs
     <:: Mov (Stack src1, Reg R10)
     <:: Cmp (Reg R10, Stack src2)
+  | Cmp (Stack src1, Data src2) ->
+    instrs
+    <:: Mov (Stack src1, Reg R10)
+    <:: Cmp (Reg R10, Data src2)
+  | Cmp (Data src1, Stack src2) ->
+    instrs
+    <:: Mov (Data src1, Reg R10)
+    <:: Cmp (Reg R10, Stack src2)
+  | Cmp (Data src1, Data src2) ->
+    instrs
+    <:: Mov (Data src1, Reg R10)
+    <:: Cmp (Reg R10, Data src2)
   | Cmp (src, Imm n) ->
     instrs
     <:: Mov (Imm n, Reg R11)
     <:: Cmp (src, Reg R11)
   | rest -> instrs <:: rest
 
-let fixup_func (Function (name, instrs, stack_size)) =
-  let new_instrs = List.fold_left fixup_instr [] instrs in
-  let stack_size =
-    if stack_size mod 16 > 0 then
-      stack_size + (16 - (stack_size mod 16))
-    else
-      stack_size in
-  Function (name, (AllocateStack stack_size :: List.rev new_instrs),
-            stack_size)
+let fixup_func top_level =
+  match top_level with
+  | Function (name, global, instrs, stack_size) ->
+     let new_instrs = List.fold_left fixup_instr [] instrs in
+     let stack_size =
+       if stack_size mod 16 > 0 then
+         stack_size + (16 - (stack_size mod 16))
+       else
+         stack_size in
+     Function (name, global, (AllocateStack stack_size :: List.rev new_instrs),
+               stack_size)
+  | x -> x
 
 let fixup_program (Program func_def)  =
   Program (List.map fixup_func func_def)
@@ -368,6 +403,7 @@ let emit_operand operand size =
   match operand with
   | Reg reg -> reg_name reg size
   | Stack v -> Printf.sprintf "%d(%%rbp)" v
+  | Data (v,_) -> Printf.sprintf "%s(%%rip)" v
   | Imm v -> Printf.sprintf "$%Ld" v
   | Pseudo _ -> failwith "Pseudo register not removed"
 
@@ -437,13 +473,44 @@ let emit_instr instr =
   | Call label ->
      (Printf.sprintf "    call    %s@PLT\n" label)
      
-let emit_func (Function (name, instrs,_)) =
-  (Printf.sprintf "    .globl %s\n" name)::
-  (Printf.sprintf "%s:\n" name)::
-   "    pushq    %rbp\n"::
-   "    movq     %rsp, %rbp\n"::
-  List.map emit_instr instrs
+let emit_top_level top_level =
+  match top_level with
+  | Function (name, global, instrs,_) ->
+     let fun_decl = 
+       "    .text\n" ::
+         (Printf.sprintf "%s:\n" name)::
+           "    pushq    %rbp\n"::
+             "    movq     %rsp, %rbp\n"::
+               List.map emit_instr instrs
+     in
+     if global then
+       (Printf.sprintf "    .globl %s\n" name)::fun_decl
+     else
+       fun_decl
+  | StaticVar (name, global, Some 0L) ->
+     let var_decl =
+       ["    .bss\n";
+        "    .align 4\n";
+        Printf.sprintf "%s:\n" name;
+        "    .zero 4\n"] in
+     if global then
+       (Printf.sprintf "    .globl %s\n" name) :: var_decl
+     else
+       var_decl
+  | StaticVar (name, global, Some v) ->
+     let var_decl =
+       ["    .data\n";
+        "    .align 4\n";
+        Printf.sprintf "%s:\n" name;
+        Printf.sprintf "    .long %Ld\n" v]
+     in
+     if global then
+       (Printf.sprintf "    .globl %s\n" name) :: var_decl
+     else
+       var_decl
+  | StaticVar (name, _global, None) ->
+     [Printf.sprintf "    .globl %s\n" name]
 
 let emit_program (Program func_defs) =
-  let func_lines = List.concat_map emit_func func_defs in
+  let func_lines = List.concat_map emit_top_level func_defs in
   func_lines @ ["    .section .note.GNU-stack,\"\",@progbits\n"]

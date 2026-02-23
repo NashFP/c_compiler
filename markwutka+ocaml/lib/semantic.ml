@@ -226,9 +226,9 @@ and resolve_var_decl ctx (VarDecl (loc, var_name, storage_class,
   in
   let storage_class =
     match storage_class with
-    | ImpliedExtern ->
+    | Tentative ->
        if is_top_level then
-         ImpliedExtern
+         Tentative
        else
          Auto
     | x -> x
@@ -265,6 +265,12 @@ and resolve_declaration ctx decl =
      fail_at loc
        "Cannot have static storage class in block function declarations"
   | F (FunDecl (loc, name, storage_class, args, None)) ->
+     let storage_class =
+       if storage_class = Tentative then
+         Extern
+       else
+         storage_class
+     in
      let (ctx, _) = register_identifier ctx loc name
                       (IdFuncForward args) storage_class in
      (ctx, decl)
@@ -284,7 +290,7 @@ and resolve_function ctx (FunDecl (loc, func_name, storage_class,
   let uniq_arg_name ctx arg =
     let new_storage_class =
       match storage_class with
-      | ImpliedExtern -> Auto
+      | Tentative -> Auto
       | sc -> sc
     in
     let (ctx, arg) = register_identifier ctx loc arg
@@ -308,21 +314,23 @@ and resolve_function ctx (FunDecl (loc, func_name, storage_class,
         | _ ->
            fail_at loc "Duplicate function definition") in
   let ctx = check_function_defined ctx in
+  let storage_class =
+    if storage_class = Tentative then Extern else storage_class in
   let func_id_type = if Option.is_some maybe_block_items then (IdFunc args)
                      else (IdFuncForward args) in
-  let (ctx, _) = register_global_identifier ctx loc func_name
+  let (ctx, ident) = register_global_identifier ctx loc func_name
                    func_id_type storage_class true in
   let ctx = enter_statements_block ctx in
   let (ctx, args) = map_with_ctx uniq_arg_name ctx args in
   let ctx = enter_func ctx func_name in
   match maybe_block_items with
   | None -> let ctx = leave_block ctx in
-            (leave_func ctx, FunDecl (loc, func_name, storage_class, args,
+            (leave_func ctx, FunDecl (loc, func_name, ident.storage_class, args,
                               maybe_block_items))
   | Some block_items ->
      let (ctx,block_items) = resolve_block_items ctx block_items in
      let ctx = leave_block ctx in
-     (leave_func ctx, FunDecl (loc, func_name, storage_class,
+     (leave_func ctx, FunDecl (loc, func_name, ident.storage_class,
                        args, Some block_items))
 
 let resolve_top_level ctx top_level =

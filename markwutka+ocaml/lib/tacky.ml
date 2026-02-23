@@ -17,9 +17,10 @@ type instruction = Return of val_type
                  | Label of string
                  | FunctionCall of string * val_type list * val_type
                  
-type function_definition = Function of string * val_type list *
-                                         instruction list
-type program_type = Program of function_definition list
+type top_level_definition = Function of string * bool * val_type list *
+                                          instruction list
+                          | StaticVar of string * bool * (int64 option)
+type program_type = Program of top_level_definition list
 type function_context = { func_name: string; func_next_temp_num: int }
 
 let (<::) lst item = item :: lst
@@ -318,12 +319,15 @@ let rec generate_tacky_stmt ctx instrs stmt =
   | C_ast.Null -> (ctx, instrs)
 
 and generate_tacky_var_decl ctx instrs (VarDecl (_, var_name,
-                                                 _storage_class, expr)) =
+                                                 storage_class, expr)) =
   match expr with
   | None -> (ctx, instrs)
   | Some expr ->
-     let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
-     (ctx, instrs <:: Copy (dst, Var var_name))
+     if storage_class = Auto then
+       let (ctx, instrs, dst) = generate_tacky_expr ctx instrs expr in
+       (ctx, instrs <:: Copy (dst, Var var_name))
+     else
+       (ctx, instrs)
 
 and generate_tacky_declaration ctx instrs decl =
   match decl with
@@ -337,17 +341,41 @@ and generate_block_item (ctx,instrs) item =
 
 and generate_block_items ctx instrs block_items =
   List.fold_left generate_block_item (ctx,instrs) block_items
-let generate_tacky_function ctx (C_ast.FunDecl (_, name, _storage_class,
-                                 args, maybe_block_items)) =
+let generate_tacky_function ctx (C_ast.FunDecl (_, name, storage_class,
+                                                args, maybe_block_items)) =
   match maybe_block_items with
   | None -> failwith "Tried to generate tacky for external function"
   | Some block_items ->
      let args = List.map (fun name -> Var name) args in     
      let ctx = enter_func ctx name in
      let (ctx, instrs) = generate_block_items ctx [] block_items in
+     let global = storage_class != Static in
      let ctx = leave_func ctx in
-     (ctx, Function (name, args,
+     (ctx, Function (name, global, args, 
                      List.rev (instrs <:: Return (ConstantInt 0L))))
+
+let generate_tacky_variables ident =
+  match ident.id_type with
+  | IdVar (Some (C_ast.ConstantInt (_,v))) ->
+     Some (StaticVar (ident.unique_name, not (ident.storage_class = Static),
+                Some v))
+  | IdVar None ->
+     if ident.storage_class = Extern && ident.has_tentative then
+       Some (StaticVar (ident.unique_name, true, Some 0L))
+     else if ident.storage_class = Extern then
+       Some (StaticVar (ident.unique_name, true, None))
+     else
+       Some (StaticVar (ident.unique_name, not (ident.storage_class = Static),
+                        Some 0L))
+  | _ -> None
+
+let map_with_opt fn items =
+  let folder items item =
+    match fn item with
+    | None -> items
+    | Some item -> (item::items)
+  in
+  List.rev (List.fold_left folder [] items)
 
 let generate_top_level ctx top_level =
   match top_level with
@@ -355,8 +383,12 @@ let generate_top_level ctx top_level =
   | C_ast.F decl ->
     let (ctx, decl) = generate_tacky_function ctx decl in
     (ctx, Some decl)
-  | C_ast.V _decl -> failwith "can't handle top-level variables in tacky yet"
+  | C_ast.V _decl -> (ctx,None)
+
 let generate_tacky_program ctx (C_ast.Program top_level_defs) =
-  let (ctx, top_level_defs) =
+  let vars = map_with_opt generate_tacky_variables
+                      (Context.top_level_variables ctx) in
+  let (ctx, func_defs) =
     map_opt_with_ctx generate_top_level ctx top_level_defs in
+  let top_level_defs = vars @ func_defs in
   (ctx, Program top_level_defs)
