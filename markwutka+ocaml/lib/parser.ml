@@ -287,7 +287,7 @@ let parse_type_spec tokens =
       else if got_extern then
         Extern
       else
-        ImpliedExtern
+        Tentative
     in
     ((Option.get type_spec, loc, storage_class), tokens)
 

@@ -7,6 +7,7 @@ type identifier_id_type = IdVar of C_ast.exp_type option
 type identifier_type = { id_type : identifier_id_type;
                          storage_class : C_ast.storage_class_type;
                          orig_name: string; unique_name: string;
+                         has_tentative: bool;
                        globally_visible: bool}
 
 type block_type = BlockWhile | BlockDoWhile | BlockFor | BlockSwitch |
@@ -122,7 +123,7 @@ let check_global_conflicts ctx loc ident_name id_type storage_class =
                               "Static declaration of %s follows non-static"
                               ident_name)
              else if ident.storage_class = Static &&
-                       storage_class = C_ast.ImpliedExtern then
+                       storage_class = C_ast.Tentative then
                fail_at loc (Printf.sprintf
                               "Non-static declaration of %s follows static"
                               ident_name)
@@ -143,13 +144,14 @@ let check_global_conflicts ctx loc ident_name id_type storage_class =
   | None -> ()
       
 let register_global_identifier ctx loc ident_name id_type storage_class
-  globally_visible =
+      globally_visible =
   check_global_conflicts ctx loc ident_name id_type storage_class;
   match StringMap.find_opt ident_name ctx.global_identifiers with
   | Some ident ->
      let (ident, ident_changed) =
-       if (storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern)
-          && ident.storage_class = Static then
+       if storage_class = Static
+           && (ident.storage_class = Extern || ident.storage_class = Tentative)
+          then
          ({ident with storage_class=C_ast.Static}, true)
        else
          (ident, false)
@@ -157,6 +159,12 @@ let register_global_identifier ctx loc ident_name id_type storage_class
      let (ident, ident_changed) =
        if globally_visible && not ident.globally_visible then
          ({ident with globally_visible = true}, true)
+       else
+         (ident, ident_changed)
+     in
+     let (ident, ident_changed) =
+       if storage_class = Tentative && not ident.has_tentative then
+         ({ident with has_tentative = true}, true)
        else
          (ident, ident_changed)
      in
@@ -193,15 +201,10 @@ let register_global_identifier ctx loc ident_name id_type storage_class
          else
            (ctx, ident))
   | None ->
-     let storage_class =
-       if storage_class = C_ast.ImpliedExtern then
-         C_ast.Extern
-       else
-         storage_class
-     in
      let new_ident = {id_type=id_type; orig_name=ident_name;
                       storage_class=storage_class;
                       unique_name=ident_name;
+                      has_tentative=(storage_class=C_ast.Tentative);
                      globally_visible=globally_visible} in
      let identifiers = StringMap.add ident_name new_ident
                          ctx.global_identifiers in
@@ -209,7 +212,7 @@ let register_global_identifier ctx loc ident_name id_type storage_class
   
 let register_identifier ctx loc ident_name id_type storage_class =
   let check_external () =
-    if storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern then
+    if storage_class = C_ast.Extern || storage_class = C_ast.Tentative then
         match StringMap.find_opt ident_name (List.hd ctx.identifier_stack) with
         | Some ident ->
            if ident.storage_class = Auto then
@@ -243,16 +246,15 @@ let register_identifier ctx loc ident_name id_type storage_class =
       ()
   in
   check_external();
-  let (ctx, _) =
-    if storage_class = C_ast.Extern || storage_class = C_ast.ImpliedExtern then
-      register_global_identifier ctx loc ident_name id_type
-        storage_class false
+  
+  let ctx =
+    if storage_class = C_ast.Extern || storage_class = C_ast.Tentative then
+      let (ctx, _) = register_global_identifier ctx loc ident_name id_type
+                       storage_class false
+      in
+      ctx
     else
-      (ctx, {id_type=id_type;
-                      storage_class=storage_class;
-                      orig_name=ident_name;
-                      unique_name=ident_name;
-                      globally_visible=false} )
+      ctx
   in
   let symbol_map = List.hd ctx.identifier_stack in
   match StringMap.find_opt ident_name symbol_map with
@@ -265,19 +267,36 @@ let register_identifier ctx loc ident_name id_type storage_class =
      else
        (ctx, ident)
   | None ->
-     let unique_name = Printf.sprintf "%s.%d"
-                         ident_name ctx.global_counter in
+     let unique_name =
+       if storage_class = Extern || storage_class = Tentative then
+         ident_name
+       else
+         Printf.sprintf "%s.%d"
+           ident_name ctx.global_counter in
      let new_ident = {id_type=id_type;
                       storage_class=storage_class;
                       orig_name=ident_name;
                       unique_name=unique_name;
-                     globally_visible=false} in
+                      has_tentative=storage_class=Tentative;
+                      globally_visible=false} in
+     let ctx =
+       if storage_class = C_ast.Static then
+         { ctx with global_identifiers=StringMap.add unique_name
+                                         new_ident ctx.global_identifiers}
+       else
+         ctx
+     in
      let identifiers = StringMap.add ident_name new_ident
                          (List.hd ctx.identifier_stack) in
      ({ctx with global_counter=ctx.global_counter+1;
                 identifier_stack=
                   identifiers :: List.tl ctx.identifier_stack },
       new_ident)
+
+let top_level_variables ctx =
+  let is_variable (_, ident) = is_var ident.id_type in
+  List.map snd (List.filter is_variable
+                  (StringMap.to_list ctx.global_identifiers))
 
 let curr_block_id ctx =
   match ctx.block_stack with

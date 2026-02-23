@@ -4,7 +4,7 @@
 
 module StringMap = Map.Make(String)
 
-type storage_class_type = Static | Extern | ImpliedExtern | Auto
+type storage_class_type = Static | Extern | Tentative | Auto
 type type_type = Int
 type unary_op = Complement | Negate | Not | PreInc | PreDec | PostInc | PostDec 
 type binary_op = Add | Subtract | Multiply | Divide | Remainder | ShiftLeft |
