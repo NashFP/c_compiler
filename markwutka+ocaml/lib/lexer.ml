@@ -33,7 +33,7 @@ type token_type =
   | GREATERGREATER
   | AMPERSAND
   | PIPE
-  | CARAT
+  | CARET
   | BANG
   | AMPAMP
   | PIPEPIPE
@@ -54,7 +54,7 @@ type token_type =
   | AMPEQUAL
   | GREATERGREATEREQUAL
   | LESSLESSEQUAL
-  | CARATEQUAL
+  | CARETEQUAL
   | QUESTION
   | COLON
   | COMMA
@@ -185,126 +185,103 @@ let make_identifier_token ident =
 let parse_identifier lexer =
   match match_regex lexer identifier_regex with
   | (None, _) -> fail_at lexer "Invalid identifier"
-  | (Some str, lexer) -> (str, lexer)
+  | (Some str, lexer) -> (make_identifier_token str, lexer)
+
+let rec skip_whitespace lexer =
+  if at_eof lexer then
+    lexer
+  else if at_eol lexer then
+    skip_whitespace (advance_line lexer)
+  else
+    let ch = Option.get (peek lexer) in
+    if Char.Ascii.is_white ch then
+      skip_whitespace (skip lexer)
+    else
+      lexer
+
+let is_next1 lexer default_token next_ch next_token =
+  let lexer = skip lexer in
+  match peek lexer with
+  | None -> (default_token, lexer)
+  | Some ch -> if ch = next_ch then
+                 (next_token, skip lexer)
+               else
+                 (default_token, lexer)
+
+let is_next2 lexer default_token next_ch1 next_token1 next_ch2 next_token2 =
+  let lexer = skip lexer in
+  match peek lexer with
+  | None -> (default_token, lexer)
+  | Some ch -> if ch = next_ch1 then
+                 (next_token1, skip lexer)
+               else if ch = next_ch2 then
+                 (next_token2, skip lexer)
+               else
+                 (default_token, lexer)
+
+let is_next2_ext lexer default_token next_ch1 next_token1 next_ch2 next_token2
+      ext_next_ch2 ext_next_token2 =
+  let lexer = skip lexer in
+  match peek lexer with
+  | None -> (default_token, lexer)
+  | Some ch -> if ch = next_ch1 then
+                    (next_token1, skip lexer)
+               else if ch = next_ch2 then
+                 let lexer = skip lexer in
+                 (match peek lexer with
+                  | None -> (next_token2, lexer)
+                  | Some ch ->
+                     if ch = ext_next_ch2 then
+                       (ext_next_token2, skip lexer)
+                     else
+                       (next_token2, lexer))
+               else
+                 (default_token, lexer)
+
+let read_token lexer =
+  match Option.get (peek lexer) with
+  | ch when Char.Ascii.is_digit ch ->
+     parse_integer lexer
+  | ch when Char.Ascii.is_letter ch || ch == '_' ->
+     parse_identifier lexer
+  | '-' -> is_next2 lexer MINUS '-' MINUSMINUS '=' MINUSEQUAL
+  | '+' -> is_next2 lexer PLUS '+' PLUSPLUS '=' PLUSEQUAL
+  | '<' -> is_next2_ext lexer LESS '=' LESSEQUAL '<' LESSLESS '=' LESSLESSEQUAL
+  | '>' -> is_next2_ext lexer GREATER '=' GREATEREQUAL '>' GREATERGREATER
+             '=' GREATERGREATEREQUAL
+  | '&' -> is_next2 lexer AMPERSAND '=' AMPEQUAL '&' AMPAMP
+  | '^' -> is_next1 lexer CARET '=' CARETEQUAL
+  | '|' -> is_next2 lexer PIPE '=' PIPEEQUAL '|' PIPEPIPE
+  | '=' -> is_next1 lexer EQUAL '=' EQUALEQUAL
+  | '!' -> is_next1 lexer BANG '=' BANGEQUAL
+  | '*' -> is_next1 lexer ASTERISK '=' ASTERISKEQUAL
+  | '/' -> is_next1 lexer SLASH '=' SLASHEQUAL
+  | '%' -> is_next1 lexer PERCENT '=' PERCENTEQUAL
+  | '(' -> (LPAREN, skip lexer)
+  | ')' -> (RPAREN, skip lexer)
+  | '{' -> (LBRACE, skip lexer)
+  | '}' -> (RBRACE, skip lexer)
+  | '~' -> (TILDE, skip lexer)
+  | ';' -> (SEMI, skip lexer)
+  | '?' -> (QUESTION, skip lexer)
+  | ':' -> (COLON, skip lexer)
+  | ',' -> (COMMA, skip lexer)
+  | ch -> fail_at lexer (Printf.sprintf "Unexpected token '%c'\n" ch)
+
+let next_token lexer =
+  let lexer = skip_whitespace lexer in
+  if at_eof lexer then
+    None
+  else
+    let loc = location lexer in
+    let (token, lexer) = read_token lexer in
+    Some (token, loc, lexer)
 
 let tokenize lexer =
-  let rec tokenize_1 lexer tokens =
-    if at_eof lexer then
-      List.rev ((EOF,location lexer):: tokens)
-    else if at_eol lexer then
-      tokenize_1 (advance_line lexer) tokens
-    else
-      let ch = peek lexer in
-      let ch = Option.get ch in
-      let loc = location lexer in
-      if Char.Ascii.is_white ch then
-        tokenize_1 (skip lexer) tokens
-      else if Char.Ascii.is_digit ch then
-        let (token, lexer) = parse_integer lexer in
-        tokenize_1 lexer ((token,loc) :: tokens)
-      else if (Char.Ascii.is_letter ch) || ch == '_' then
-        let (ident, lexer) = parse_identifier lexer in
-        tokenize_1 lexer ((make_identifier_token ident,loc) :: tokens)
-      else if ch == '-' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '-' -> tokenize_1 (skip lexer) ((MINUSMINUS,loc) :: tokens)
-        | Some '=' -> tokenize_1 (skip lexer) ((MINUSEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((MINUS,loc) :: tokens)
-      else if ch == '+' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '+' -> tokenize_1 (skip lexer) ((PLUSPLUS,loc) :: tokens)
-        | Some '=' -> tokenize_1 (skip lexer) ((PLUSEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((PLUS,loc) :: tokens)
-      else if ch == '<' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '<' ->
-           let lexer = skip lexer in
-           (match peek lexer with
-            | Some '=' ->
-               tokenize_1 (skip lexer) ((LESSLESSEQUAL,loc) :: tokens)
-            | _ -> tokenize_1 lexer ((LESSLESS,loc) :: tokens))
-        | Some '=' -> tokenize_1 (skip lexer) ((LESSEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((LESS,loc) :: tokens)
-      else if ch == '>' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '>' ->
-           let lexer = skip lexer in
-           (match peek lexer with
-            | Some '=' ->
-               tokenize_1 (skip lexer) ((GREATERGREATEREQUAL,loc) :: tokens)
-            | _ -> tokenize_1 lexer ((GREATERGREATER,loc) :: tokens))
-        | Some '=' -> tokenize_1 (skip lexer) ((GREATEREQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((GREATER,loc) :: tokens)
-      else if ch == '&' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '&' -> tokenize_1 (skip lexer) ((AMPAMP,loc) :: tokens)
-        | Some '=' -> tokenize_1 (skip lexer) ((AMPEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((AMPERSAND, loc) :: tokens)        
-      else if ch == '^' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((CARATEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((CARAT, loc) :: tokens)
-      else if ch == '|' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '|' -> tokenize_1 (skip lexer) ((PIPEPIPE,loc) :: tokens)
-        | Some '=' -> tokenize_1 (skip lexer) ((PIPEEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((PIPE, loc) :: tokens)
-      else if ch == '=' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((EQUALEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((EQUAL, loc) :: tokens)
-      else if ch == '!' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((BANGEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((BANG,loc) :: tokens)
-      else if ch == '(' then
-        tokenize_1 (skip lexer) ((LPAREN, loc) :: tokens)
-      else if ch == ')' then
-        tokenize_1 (skip lexer) ((RPAREN, loc) :: tokens)
-      else if ch == '{' then
-        tokenize_1 (skip lexer) ((LBRACE, loc) :: tokens)
-      else if ch == '}' then
-        tokenize_1 (skip lexer) ((RBRACE, loc) :: tokens)
-      else if ch == '~' then
-        tokenize_1 (skip lexer) ((TILDE, loc) :: tokens)
-      else if ch == ';' then
-        tokenize_1 (skip lexer) ((SEMI, loc) :: tokens)
-      else if ch == '*' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((ASTERISKEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((ASTERISK, loc) :: tokens)
-      else if ch == '/' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((SLASHEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((SLASH, loc) :: tokens)
-      else if ch == '%' then
-        let lexer = skip lexer in
-        match peek lexer with
-        | Some '=' -> tokenize_1 (skip lexer) ((PERCENTEQUAL,loc) :: tokens)
-        | _ -> tokenize_1 lexer ((PERCENT, loc) :: tokens)
-      else if ch == '?' then
-        tokenize_1 (skip lexer) ((QUESTION, loc) :: tokens)
-      else if ch == ':' then
-        tokenize_1 (skip lexer) ((COLON, loc) :: tokens)
-      else if ch == ',' then
-        tokenize_1 (skip lexer) ((COMMA, loc) :: tokens)
-      else
-        (Printf.printf "%s, line %d, column %d: Unexpected token %c\n"
-           (Filename.basename lexer.lexer_filename)
-           lexer.lexer_file_line (lexer.lexer_pos+1)
-         ch;
-         exit 1)
-    in
-      tokenize_1 lexer []
-        
+  let rec tokenize1 lexer tokens =
+    match next_token lexer with
+    | None -> List.rev ((EOF, location lexer) :: tokens)
+    | Some (token, loc, lexer) ->
+       tokenize1 lexer ((token,loc)::tokens)
+  in
+  tokenize1 lexer []

@@ -36,7 +36,7 @@ let str_of_token = function
   | LESSLESS -> "<<"
   | GREATERGREATER -> ">>"
   | AMPERSAND -> "&"
-  | CARAT -> "^"
+  | CARET -> "^"
   | PIPE -> "|"
   | EOF -> "end of file"
   | BANG -> "!"
@@ -57,7 +57,7 @@ let str_of_token = function
   | PERCENTEQUAL -> "%="
   | PIPEEQUAL -> "|="
   | AMPEQUAL -> "&="
-  | CARATEQUAL -> "^="
+  | CARETEQUAL -> "^="
   | LESSLESSEQUAL -> "<<="
   | GREATERGREATEREQUAL -> ">>="
   | QUESTION -> "?"
@@ -120,7 +120,7 @@ let is_binop = function
   | LESSLESS -> true
   | GREATERGREATER -> true
   | AMPERSAND -> true
-  | CARAT -> true
+  | CARET -> true
   | PIPE -> true
   | AMPAMP -> true
   | PIPEPIPE -> true
@@ -148,7 +148,7 @@ let binop_precedence = function
   | EQUALEQUAL -> 30
   | BANGEQUAL -> 30
   | AMPERSAND -> 25
-  | CARAT -> 20
+  | CARET -> 20
   | PIPE -> 15
   | AMPAMP -> 10
   | PIPEPIPE -> 5
@@ -162,7 +162,7 @@ let binop_precedence = function
   | LESSLESSEQUAL -> 2
   | GREATERGREATEREQUAL -> 2
   | AMPEQUAL -> 2
-  | CARATEQUAL -> 2
+  | CARETEQUAL -> 2
   | PIPEEQUAL -> 2
   | _ -> 99
 
@@ -176,7 +176,7 @@ let is_assignment_op = function
   | LESSLESSEQUAL -> true
   | GREATERGREATEREQUAL -> true
   | AMPEQUAL -> true
-  | CARATEQUAL -> true
+  | CARETEQUAL -> true
   | PIPEEQUAL -> true
   | _ -> false
 
@@ -189,7 +189,7 @@ let is_compound_op = function
   | LESSLESSEQUAL -> true
   | GREATERGREATEREQUAL -> true
   | AMPEQUAL -> true
-  | CARATEQUAL -> true
+  | CARETEQUAL -> true
   | PIPEEQUAL -> true
   | _ -> false
 
@@ -202,7 +202,7 @@ let compound_calc_op = function
   | LESSLESSEQUAL -> ShiftLeft
   | GREATERGREATEREQUAL -> ShiftRight
   | AMPEQUAL -> BitwiseAnd
-  | CARATEQUAL -> BitwiseXor
+  | CARETEQUAL -> BitwiseXor
   | PIPEEQUAL -> BitwiseOr
   | _ -> failwith "Tried to compute compound calc op for non compound op"
  
@@ -237,7 +237,7 @@ let parse_binop tokens =
   | LESSLESS -> (ShiftLeft, next_tokens)
   | GREATERGREATER -> (ShiftRight, next_tokens)
   | AMPERSAND -> (BitwiseAnd, next_tokens)
-  | CARAT -> (BitwiseXor, next_tokens)
+  | CARET -> (BitwiseXor, next_tokens)
   | PIPE -> (BitwiseOr, next_tokens)
   | LESS -> (LessThan, next_tokens)
   | LESSEQUAL -> (LessOrEqual, next_tokens)
